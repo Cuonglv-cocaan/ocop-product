@@ -1,32 +1,20 @@
 # OCOP Connect — Python + Streamlit
 
-## Cài đặt và chạy riêng
-
-Chạy từ thư mục gốc dự án với Python 3.10+. Toàn bộ thư viện được quản lý trong [requirements.txt](../requirements.txt):
+Chạy từ gốc dự án với Python 3.10+:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+python data/database.py --migrate-csv data/products_ocop.csv
 cd src
 python -m streamlit run app.py
 ```
 
-Mở http://localhost:8501. Để chạy cả crawler và pipeline, xem [README dự án](../README.md).
+Ứng dụng đọc bảng `products` và ghi yêu cầu liên hệ vào bảng `leads` trong cùng DuckDB. Đường dẫn mặc định là `data/ocop.duckdb`, cấu hình qua `DUCKDB_PATH` trong `.env` ở gốc dự án. Đường dẫn tương đối tính từ gốc dự án.
 
-## Dữ liệu và chức năng
+Ứng dụng hỗ trợ tìm kiếm, lọc, xem chi tiết sản phẩm, khám phá theo tỉnh và mở gian hàng nguồn. Biểu mẫu kết nối lưu dữ liệu, chưa tự gửi email. Sao OCOP và xuất xứ chưa được hệ thống tự xác minh.
 
-Ứng dụng đọc duy nhất [CSV tổng](../data/products_ocop.csv) trong thư mục `data/` ở gốc dự án. Crawler tự gọi pipeline để cập nhật file tổng sau khi chạy xong.
+Crawler vẫn lưu CSV thô; pipeline nhập dữ liệu vào DuckDB theo khóa `source + product_id`. Ứng dụng không đọc CSV và đọc lại database mỗi lần Streamlit chạy lại.
 
-Các cột bắt buộc:
-`product_id,product_name,brand,category_name,province_name,ocop_stars,description,source_url,image_url,price,source`.
+Khi triển khai, dùng `src/app.py` và requirements ở gốc, nhập dữ liệu vào database trên môi trường triển khai và dùng lưu trữ bền vững. Database chung có thông tin liên hệ, không commit lên Git. Đóng ứng dụng trước khi chạy pipeline/crawler để tránh khóa file giữa các tiến trình.
 
-Khóa dữ liệu là `source + product_id`; `price` là số VND không có dấu phân tách. `image_url` và `source_url` là URL HTTP(S). Hệ thống chưa tự xác minh chứng nhận sao OCOP hoặc xuất xứ.
-
-Ứng dụng hỗ trợ tìm kiếm, lọc sản phẩm, xem chi tiết, khám phá theo tỉnh và mở gian hàng nguồn. Biểu mẫu kết nối lưu vào bảng `leads` trong DuckDB, mặc định `../data/ocop.duckdb`, chưa tự gửi email hoặc thông báo. Đổi đường dẫn bằng `DUCKDB_PATH` trong `.env` ở gốc dự án; đường dẫn tương đối tính từ gốc dự án. Xem [hướng dẫn chuyển dữ liệu SQLite cũ](../README.md).
-
-## Triển khai
-
-Triển khai toàn bộ dự án, main file là `src/app.py`, dùng requirements ở thư mục gốc. Cần giữ thư mục `data/` cạnh `src/`, không triển khai riêng thư mục `src/`.
-
-Cần đưa CSV lên cùng bản triển khai; dữ liệu máy cá nhân không tự xuất hiện trên cloud. DuckDB trên môi trường lưu trữ tạm có thể mất khi triển khai lại; cần nơi lưu bền vững khi nhận yêu cầu thực tế.
+Xem [README dự án](../README.md) để biết cách đồng bộ, cấu hình và chuyển dữ liệu SQLite cũ.

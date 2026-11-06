@@ -1,7 +1,7 @@
 """OCOP Connect — Streamlit demo portal.
 
 Run: streamlit run app.py
-Data: ../data/products_ocop.csv; leads: DuckDB configured by DUCKDB_PATH.
+Products and leads: shared DuckDB configured by DUCKDB_PATH.
 """
 from __future__ import annotations
 
@@ -15,10 +15,8 @@ import streamlit as st
 import duckdb
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR.parent / "data"
-DATA_FILE = DATA_DIR / "products_ocop.csv"
 sys.path.insert(0, str(BASE_DIR.parent))
-from data.database import save_lead
+from data.database import read_products, save_lead
 
 st.set_page_config(page_title="OCOP Connect | Đặc sản Việt", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
@@ -102,12 +100,8 @@ def valid_http_url(value: object) -> str:
     return url if parts.scheme in ("http", "https") and parts.netloc else ""
 
 
-@st.cache_data(show_spinner=False)
-def load_products(path: str, modified_at: float) -> pd.DataFrame:
-    df = pd.read_csv(
-        path,
-        dtype={"product_id": "string"}
-    ).fillna("")
+def load_products() -> pd.DataFrame:
+    df = read_products().fillna("")
 
     required = {
         "product_id",
@@ -366,11 +360,11 @@ def sync_navigation():
 
 if "page" not in st.session_state:
     st.session_state["page"] = "Trang chủ"
-if not DATA_FILE.exists():
-    st.error(f"Không tìm thấy file dữ liệu: {DATA_FILE}")
-    st.stop()
 try:
-    products = load_products(str(DATA_FILE), DATA_FILE.stat().st_mtime)
+    products = load_products()
+    if products.empty:
+        st.warning("Chưa có sản phẩm trong DuckDB. Chạy: python data/database.py --migrate-csv data/products_ocop.csv")
+        st.stop()
 except Exception as exc:
     st.error(f"Không đọc được dữ liệu sản phẩm: {exc}")
     st.stop()
