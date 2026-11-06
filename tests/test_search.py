@@ -42,8 +42,11 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
     async def test_filters_exclude_all(self):
         with patch.object(search, "read_products", return_value=self.rows), \
                 patch.object(search, "get_vector_store", new_callable=AsyncMock) as store:
-            _, products, _ = await search.search_products_async("tea", max_price=50)
+            answer, products, _ = await search.search_products_async("tea", max_price=50)
         self.assertEqual(products, [])
+        self.assertIn("Không có gợi ý phù hợp", answer)
+        self.assertIn("ngân sách", answer)
+        self.assertIn("Drinks", answer)
         store.assert_not_awaited()
 
     async def test_ranking_deduplication_current_data_and_source_keys(self):
@@ -83,8 +86,11 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(search, "read_products", return_value=self.rows), \
                 patch.object(search, "_retrieve_documents", new=store.asimilarity_search), \
                 patch.object(search, "_get_answer_chain") as chain:
-            _, products, _ = await search.search_products_async("tea")
+            answer, products, _ = await search.search_products_async("tea")
         self.assertEqual(products, [])
+        self.assertIn("Không có gợi ý phù hợp", answer)
+        self.assertIn("hướng tìm kiếm tương tự", answer)
+        self.assertNotIn("embeddings", answer)
         chain.assert_not_called()
 
     def test_number_and_serialization(self):

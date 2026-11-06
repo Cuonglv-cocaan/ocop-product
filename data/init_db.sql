@@ -22,18 +22,7 @@ CREATE TABLE IF NOT EXISTS products (
 
 -- Bảng lưu thông tin đăng ký kết nối cung cầu.
 
-CREATE SEQUENCE IF NOT EXISTS lead_ids START 1;
-
-CREATE TABLE IF NOT EXISTS leads (
-    id               BIGINT PRIMARY KEY DEFAULT nextval('lead_ids'),
-    created_at       TEXT NOT NULL,
-    kind             TEXT NOT NULL,
-    name             TEXT NOT NULL,
-    email            TEXT NOT NULL,
-    phone            TEXT NOT NULL,
-    note             TEXT NOT NULL,
-    legacy_sqlite_id BIGINT UNIQUE
-);
+-- Leads are stored in SQLite, not DuckDB.
 
 -- Không tạo bảng embeddings thủ công tại đây.
 -- database.py khởi tạo bảng "ocop_embeddings_gemini"

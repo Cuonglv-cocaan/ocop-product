@@ -1,4 +1,6 @@
 import tempfile
+import sqlite3
+from contextlib import closing
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +16,9 @@ class SchemaTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         override = patch.object(db, "DUCKDB_PATH", Path(self.temp.name) / "test.duckdb")
+        leads_override = patch.object(db, "SQLITE_LEADS_PATH", Path(self.temp.name) / "leads.sqlite3")
+        leads_override.start()
+        self.addCleanup(leads_override.stop)
         override.start()
         self.addCleanup(override.stop)
 
@@ -53,6 +58,34 @@ class SchemaTests(unittest.TestCase):
         with db.connect() as conn:
             self.assertEqual(conn.execute("SELECT source FROM products").fetchone()[0], "tiki")
             self.assertNotIn("products_before_schema_upgrade", [r[0] for r in conn.execute("SHOW TABLES").fetchall()])
+
+    def test_leads_never_open_duckdb(self):
+        with patch.object(db, "connect", side_effect=AssertionError("DuckDB must not be opened")):
+            lead_id = db.save_lead("buyer", " Name ", "a@example.com", "0", " Note ")
+        with closing(db.connect_leads()) as conn:
+            self.assertEqual(conn.execute("SELECT name, note FROM leads WHERE id=?", [lead_id]).fetchone(), ("Name", "Note"))
+        self.assertFalse(db.DUCKDB_PATH.exists())
+
+    def test_migrate_duckdb_leads_is_repeatable_and_exports_no_leads(self):
+        with db.connect() as conn:
+            db.initialize_products(conn)
+            conn.execute("CREATE TABLE leads (id BIGINT, created_at TEXT, kind TEXT, name TEXT, email TEXT, phone TEXT, note TEXT)")
+            conn.execute("INSERT INTO leads VALUES (7,'now','buyer','Name','a@example.com','0','Note')")
+            conn.execute("CREATE TABLE ocop_embeddings_gemini (id VARCHAR PRIMARY KEY,text VARCHAR,embedding FLOAT[],metadata VARCHAR)")
+            conn.execute("INSERT INTO ocop_embeddings_gemini VALUES ('v','test',[1.0,2.0],'{}')")
+        self.assertEqual(db.migrate_duckdb_leads(), 1)
+        self.assertEqual(db.migrate_duckdb_leads(), 0)
+        destination = Path(self.temp.name) / "catalog.duckdb"
+        db.export_catalog(destination)
+        with duckdb.connect(str(destination), read_only=True) as conn:
+            self.assertEqual({r[0] for r in conn.execute("SHOW TABLES").fetchall()}, {"products", "ocop_embeddings_gemini"})
+            self.assertEqual(conn.execute("SELECT count(*) FROM ocop_embeddings_gemini").fetchall()[0][0], 1)
+
+    def test_readonly_catalog_and_sqlite_leads(self):
+        db.upsert_products(pd.DataFrame([dict(source="TIKI", product_id="001", product_name="Tea")]))
+        with patch.object(db, "DUCKDB_READ_ONLY", True):
+            self.assertEqual(len(db.read_products()), 1)
+            self.assertGreater(db.save_lead("buyer", "Name", "a@example.com", "0", "Note"), 0)
 
 
 if __name__ == "__main__":

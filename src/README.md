@@ -9,7 +9,7 @@ cd src
 python -m streamlit run app.py
 ```
 
-Ứng dụng đọc bảng `products` và ghi yêu cầu liên hệ vào bảng `leads` trong cùng DuckDB. Đường dẫn mặc định là `data/ocop.duckdb`, cấu hình qua `DUCKDB_PATH` trong `.env` ở gốc dự án. Đường dẫn tương đối tính từ gốc dự án.
+Ứng dụng đọc sản phẩm/embeddings từ DuckDB; yêu cầu liên hệ lưu riêng vào SQLite qua SQLITE_LEADS_PATH (mặc định data/leads.sqlite3). Đường dẫn mặc định là `data/ocop.duckdb`, cấu hình qua `DUCKDB_PATH` trong `.env` ở gốc dự án. Đường dẫn tương đối tính từ gốc dự án.
 
 Ứng dụng hỗ trợ tìm kiếm, lọc, xem chi tiết sản phẩm, khám phá theo tỉnh và mở gian hàng nguồn. Biểu mẫu kết nối lưu dữ liệu, chưa tự gửi email. Sao OCOP và xuất xứ chưa được hệ thống tự xác minh.
 
@@ -17,6 +17,8 @@ Trang chủ có ô “Khám phá sản phẩm cùng AI” dưới phần giới 
 
 Crawler vẫn lưu CSV thô; pipeline nhập dữ liệu vào DuckDB theo khóa `source + product_id`. Ứng dụng không đọc CSV và đọc lại database mỗi lần Streamlit chạy lại.
 
-Khi triển khai, dùng `src/app.py` và requirements ở gốc, nhập dữ liệu vào database trên môi trường triển khai và dùng lưu trữ bền vững. Database chung có thông tin liên hệ, không commit lên Git. Đóng ứng dụng trước khi chạy pipeline/crawler để tránh khóa file giữa các tiến trình.
+Khi triển khai, dùng `src/app.py` và requirements ở gốc, nhập dữ liệu vào database trên môi trường triển khai và dùng lưu trữ bền vững. SQLite chứa thông tin liên hệ, không commit lên Git; chỉ dùng bản DuckDB catalog sạch để triển khai. Đóng ứng dụng trước khi chạy pipeline/crawler để tránh khóa file giữa các tiến trình.
 
-Xem [README dự án](../README.md) để biết cách đồng bộ, cấu hình và chuyển dữ liệu SQLite cũ.
+Xem [README dự án](../README.md) để biết cách đồng bộ, cấu hình và chuyển leads DuckDB cũ sang SQLite.
+
+Triển khai Community Cloud: xem hướng dẫn catalog sạch và DUCKDB_READ_ONLY trong README gốc. SQLite cục bộ không được bảo đảm lưu bền vững trên cloud.

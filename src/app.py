@@ -1,7 +1,7 @@
 """OCOP Connect — Streamlit demo portal.
 
 Run: streamlit run app.py
-Products and leads: shared DuckDB configured by DUCKDB_PATH.
+Products: DuckDB; leads: SQLite.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 import pandas as pd
 import streamlit as st
-import duckdb
+import sqlite3
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR.parent))
@@ -23,8 +23,21 @@ st.set_page_config(page_title="OCOP Connect | Đặc sản Việt", page_icon="�
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap');
-html, body, [class*="css"], [data-testid="stApp"] {font-family: 'Be Vietnam Pro', sans-serif;}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+:root {--ocop-font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;}
+html, body, [data-testid="stApp"] {
+    font-family: var(--ocop-font);
+    -webkit-font-smoothing: antialiased;
+}
+[data-testid="stApp"] :is(h1, h2, h3, h4, h5, h6, p, label, input, textarea, button, select),
+[data-testid="stMarkdownContainer"],
+[data-testid="stChatMessage"],
+[data-testid="stChatInput"] textarea,
+[data-baseweb="select"],
+[data-baseweb="popover"] [role="option"],
+[role="dialog"] :is(h1, h2, h3, p, label, input, textarea, button) {
+    font-family: var(--ocop-font) !important;
+}
 [data-testid="stHeader"] {display: none;}
 [data-testid="stToolbar"] {display: none;}
 .block-container {
@@ -347,7 +360,7 @@ def connect():
             else:
                 try:
                     lead_id = save_lead(kind, name, email, phone, note)
-                except (duckdb.Error, OSError):
+                except (sqlite3.Error, OSError):
                     st.error("Không thể lưu yêu cầu lúc này. Thông tin vẫn được giữ trong biểu mẫu, vui lòng thử lại.")
                 else:
                     st.success(f"Đã lưu yêu cầu của bạn. Mã yêu cầu: #{lead_id}.")

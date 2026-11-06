@@ -110,6 +110,28 @@ def _budget(question, history=None):
     return None
 
 
+def _no_match_suggestions(df, category=None, province=None, max_price=None):
+    """Suggest alternative searches using catalog data, without claiming a match."""
+    suggestions = []
+    if max_price is not None:
+        suggestions.append("Thử tăng ngân sách hoặc bỏ giới hạn giá.")
+    if province:
+        suggestions.append("Thử tìm cùng loại sản phẩm ở tỉnh/thành khác.")
+    categories = sorted({str(value).strip() for value in df.get("category_name", [])
+                         if pd.notna(value) and str(value).strip()})
+    if category in categories:
+        categories.remove(category)
+        categories.insert(0, category)
+    for name in categories[:3]:
+        suggestions.append(f'Khám phá sản phẩm thuộc danh mục “{name}”.')
+    if not suggestions:
+        suggestions = ["Thử mô tả loại sản phẩm hoặc mục đích sử dụng khác.",
+                       "Thử tìm đặc sản làm quà hoặc sản phẩm từ vùng miền khác."]
+    return "Không có gợi ý phù hợp với yêu cầu hiện tại.\n\nBạn có thể thử các hướng tìm kiếm tương tự:\n\n" + "\n".join(
+        f"- {item}" for item in suggestions[:4]
+    )
+
+
 async def _retrieve_documents(question, eligible_products, k):
     """Filter before ranking and keep one best chunk per product."""
     store = await get_vector_store()
@@ -282,8 +304,7 @@ async def search_products_async(
 
     if df.empty:
         return (
-            "Danh mục sản phẩm đang trống. "
-            "Bạn cần nhập dữ liệu sản phẩm trước.",
+            _no_match_suggestions(df),
             [],
             [],
         )
@@ -311,8 +332,7 @@ async def search_products_async(
 
     if not eligible_products:
         return (
-            "Chưa có sản phẩm đáp ứng bộ lọc trong danh mục. "
-            "Bạn có thể nới bộ lọc và thử lại.",
+            _no_match_suggestions(df, category_filter, province_filter, max_price),
             [],
             [],
         )
@@ -370,10 +390,7 @@ async def search_products_async(
 
     if not products:
         return (
-            "Chưa tìm thấy sản phẩm phù hợp trong nhóm "
-            "kết quả tìm kiếm. Hãy thử từ khóa khác hoặc "
-            "nới bộ lọc. Nếu vừa nhập sản phẩm mới, cần "
-            "kiểm tra bước tạo embeddings.",
+            _no_match_suggestions(df, category_filter, province_filter, max_price),
             [],
             [],
         )
@@ -410,6 +427,8 @@ async def search_products_async(
                 raise ValueError("AI selected a product outside the search results")
             if allowed[key] not in selected:
                 selected.append(allowed[key])
+        if not selected:
+            return _no_match_suggestions(df, category_filter, province_filter, max_price), [], contexts
         return result["answer"], selected, contexts
     except (ValueError, TypeError, KeyError, AttributeError):
         return "Chưa thể xác nhận đề xuất phù hợp. Bạn hãy thử diễn đạt lại nhu cầu.", [], contexts

@@ -34,6 +34,8 @@ dist/
 *.db-*
 *.duckdb
 *.duckdb.wal
+# Only the catalog-only export may be deployed through Git.
+!/data/catalog.duckdb
 
 # Raw crawler captures and local backups
 /crawlers/*/ocop_output/
