@@ -22,9 +22,10 @@ PROJECT_ROOT = BASE_DIR.parent
 # Environment variables take precedence over the project's local .env.
 load_dotenv(PROJECT_ROOT / ".env")
 
-db_path = Path(
-    os.getenv("DUCKDB_PATH", "data/ocop.duckdb")
-).expanduser()
+CATALOG_PATH = BASE_DIR / "catalog.duckdb"
+# Fresh Cloud deployments have the catalog export but no private local .env.
+default_db_path = CATALOG_PATH if CATALOG_PATH.is_file() else BASE_DIR / "ocop.duckdb"
+db_path = Path(os.getenv("DUCKDB_PATH") or str(default_db_path)).expanduser()
 
 if not db_path.is_absolute():
     db_path = PROJECT_ROOT / db_path
@@ -32,7 +33,8 @@ if not db_path.is_absolute():
 DUCKDB_PATH = db_path
 leads_path = Path(os.getenv("SQLITE_LEADS_PATH", "data/leads.sqlite3")).expanduser()
 SQLITE_LEADS_PATH = leads_path if leads_path.is_absolute() else PROJECT_ROOT / leads_path
-DUCKDB_READ_ONLY = os.getenv("DUCKDB_READ_ONLY", "false").lower() in ("1", "true", "yes")
+default_read_only = "true" if DUCKDB_PATH.resolve() == CATALOG_PATH.resolve() else "false"
+DUCKDB_READ_ONLY = os.getenv("DUCKDB_READ_ONLY", default_read_only).strip().lower() in ("1", "true", "yes")
 EMBEDDING_MODEL = "models/gemini-embedding-001"
 
 

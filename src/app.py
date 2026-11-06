@@ -16,7 +16,7 @@ import sqlite3
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR.parent))
-from data.database import read_products, save_lead
+from data.database import DUCKDB_PATH, read_products, save_lead
 from src.search import product_discovery
 
 st.set_page_config(page_title="OCOP Connect | Đặc sản Việt", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
@@ -378,7 +378,8 @@ if "page" not in st.session_state:
 try:
     products = load_products()
     if products.empty:
-        st.warning("Chưa có sản phẩm trong DuckDB. Chạy: python data/database.py --migrate-csv data/products_ocop.csv")
+        st.warning("Chưa có sản phẩm trong database đang được cấu hình.")
+        st.caption(f"Database: {DUCKDB_PATH.name}. Trên Community Cloud, đặt DUCKDB_PATH=data/catalog.duckdb và DUCKDB_READ_ONLY=true trong Secrets, rồi khởi động lại ứng dụng. Khi chạy ở máy cá nhân, nhập dữ liệu bằng: python data/database.py --migrate-csv data/products_ocop.csv")
         st.stop()
 except Exception as exc:
     st.error(f"Không đọc được dữ liệu sản phẩm: {exc}")
