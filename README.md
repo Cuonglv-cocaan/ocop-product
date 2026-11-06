@@ -14,7 +14,7 @@ crawlers/tiki/urls.txt
 - [Crawler Tiki](crawlers/tiki/crawl_tiki.py) đọc [danh sách URL](crawlers/tiki/urls.txt), ghi CSV vào `ocop_output/`, sau đó tự gọi pipeline để cập nhật file tổng, kể cả khi không có URL mới.
 - [Pipeline](pipelines/sync_products.py) gộp theo khóa `source + product_id`, giữ dữ liệu lịch sử và không ghi đè bằng ô trống. Bản sao trước cập nhật nằm trong `data/backups/`.
 - [Ứng dụng](src/app.py) đọc duy nhất `data/products_ocop.csv`. Dữ liệu dùng chung nằm trong thư mục `data/` ở gốc dự án.
-- Yêu cầu kết nối lưu riêng trong `data/leads.sqlite3`.
+- Yêu cầu kết nối lưu trong DuckDB, mặc định `data/ocop.duckdb`, cấu hình qua `DUCKDB_PATH`.
 - Hiện chỉ có crawler Tiki, chưa có crawler TikTok/Shopee hoặc lịch chạy tự động.
 
 ## Cài đặt và chạy
@@ -55,7 +55,17 @@ Không chạy nhiều tiến trình đồng bộ cùng lúc. Dùng tên nguồn 
 
 Không đặt API key, mật khẩu hoặc token trong mã nguồn; cấu hình riêng qua biến môi trường hoặc `.streamlit/secrets.toml`. File `src/.streamlit/config.toml` hiện chỉ chứa giao diện và cấu hình server, có thể commit.
 
-Hiện ứng dụng, crawler và pipeline chưa đọc `.env` và chưa tích hợp Qdrant, Hugging Face, OpenAI hoặc Gemini. Các khóa trong `.env` chưa được sử dụng; không cần cấu hình các dịch vụ này để chạy dự án.
+Module [database](data/database.py) đọc `.env` ở gốc dự án. `DUCKDB_PATH=data/ocop.duckdb` được tính từ gốc dự án, không phụ thuộc thư mục chạy lệnh. Biến môi trường hệ thống được ưu tiên hơn `.env`. File DuckDB và WAL được loại khỏi Git.
+
+Biểu mẫu dùng bảng `leads` trong DuckDB; danh mục sản phẩm và pipeline hiện vẫn dùng CSV. Vector store `ocop_embeddings_gemini` dùng cùng file DuckDB và chỉ khởi tạo khi gọi `get_vector_store()`, cần `GEMINI_API_KEY` hoặc `GOOGLE_API_KEY`. Chạy ứng dụng thông thường không cần khóa Gemini; các khóa Qdrant, Hugging Face và OpenAI chưa được sử dụng.
+
+Để chuyển yêu cầu kết nối từ SQLite cũ sang DuckDB, chạy tại gốc dự án:
+
+```powershell
+python data/database.py --migrate-sqlite data/leads.sqlite3
+```
+
+Lệnh giữ nguyên file SQLite, lưu ID cũ trong `legacy_sqlite_id` và không nhập trùng khi chạy lại trên cùng dữ liệu SQLite. ID DuckDB được cấp mới. Sao lưu file DuckDB khi ứng dụng đã đóng; dùng lưu trữ bền vững khi triển khai.
 
 Streamlit đọc `.streamlit/config.toml` theo thư mục chạy lệnh. Để dùng cấu hình trong `src/.streamlit/`, chạy `cd src` rồi `python -m streamlit run app.py`.
 

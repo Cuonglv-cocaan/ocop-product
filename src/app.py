@@ -1,23 +1,24 @@
 """OCOP Connect — Streamlit demo portal.
 
 Run: streamlit run app.py
-Data: ../data/products_ocop.csv; leads: ../data/leads.sqlite3.
+Data: ../data/products_ocop.csv; leads: DuckDB configured by DUCKDB_PATH.
 """
 from __future__ import annotations
 
 import html
-import sqlite3
-from datetime import datetime, timezone
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
 import pandas as pd
 import streamlit as st
+import duckdb
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR.parent / "data"
 DATA_FILE = DATA_DIR / "products_ocop.csv"
-LEADS_FILE = DATA_DIR / "leads.sqlite3"
+sys.path.insert(0, str(BASE_DIR.parent))
+from data.database import save_lead
 
 st.set_page_config(page_title="OCOP Connect | Đặc sản Việt", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
@@ -331,27 +332,6 @@ def regions(df: pd.DataFrame):
                     st.rerun()
 
 
-def save_lead(kind: str, name: str, email: str, phone: str, note: str) -> int:
-    LEADS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(LEADS_FILE, timeout=30) as connection:
-        connection.execute("""
-            CREATE TABLE IF NOT EXISTS leads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL,
-                phone TEXT NOT NULL,
-                note TEXT NOT NULL
-            )
-        """)
-        cursor = connection.execute(
-            "INSERT INTO leads (created_at, kind, name, email, phone, note) VALUES (?, ?, ?, ?, ?, ?)",
-            (datetime.now(timezone.utc).isoformat(), kind, name.strip(), email.strip(), phone.strip(), note.strip()),
-        )
-        return cursor.lastrowid
-
-
 def connect():
     st.markdown('<div class="section-kicker">KẾT NỐI CUNG — CẦU</div>', unsafe_allow_html=True)
     st.header("Gửi nhu cầu mua sỉ hoặc đăng ký nhà cung cấp")
@@ -371,7 +351,7 @@ def connect():
             else:
                 try:
                     lead_id = save_lead(kind, name, email, phone, note)
-                except (sqlite3.Error, OSError):
+                except (duckdb.Error, OSError):
                     st.error("Không thể lưu yêu cầu lúc này. Thông tin vẫn được giữ trong biểu mẫu, vui lòng thử lại.")
                 else:
                     st.success(f"Đã lưu yêu cầu của bạn. Mã yêu cầu: #{lead_id}.")

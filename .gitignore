@@ -32,6 +32,8 @@ dist/
 *.sqlite3-*
 *.db
 *.db-*
+*.duckdb
+*.duckdb.wal
 
 # Raw crawler captures and local backups
 /crawlers/*/ocop_output/
