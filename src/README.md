@@ -2,12 +2,13 @@
 
 ## Cài đặt và chạy riêng
 
-Chạy từ thư mục `app/` với Python 3.10+:
+Chạy từ thư mục gốc dự án với Python 3.10+. Toàn bộ thư viện được quản lý trong [requirements.txt](../requirements.txt):
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+cd src
 python -m streamlit run app.py
 ```
 
@@ -26,6 +27,6 @@ Khóa dữ liệu là `source + product_id`; `price` là số VND không có d�
 
 ## Triển khai
 
-Triển khai toàn bộ dự án, main file là `app/app.py`, dùng requirements ở thư mục gốc. Cần giữ thư mục `data/` cạnh `app/`, không triển khai riêng thư mục `app/`.
+Triển khai toàn bộ dự án, main file là `src/app.py`, dùng requirements ở thư mục gốc. Cần giữ thư mục `data/` cạnh `src/`, không triển khai riêng thư mục `src/`.
 
 Cần đưa CSV lên cùng bản triển khai; dữ liệu máy cá nhân không tự xuất hiện trên cloud. SQLite trên môi trường lưu trữ tạm có thể mất khi triển khai lại; cần nơi lưu bền vững khi nhận yêu cầu thực tế.

@@ -56,6 +56,7 @@ def normalize(df: pd.DataFrame, source: str | None) -> pd.DataFrame:
     df = df[COLUMNS].fillna("").astype(str).apply(lambda c: c.str.strip())
     if source:
         df["source"] = source
+    df["source"] = df["source"].str.strip().str.upper()
     df["province_name"] = df["province_name"].replace("", "Chưa cập nhật")
     # Product IDs are strings to retain leading zeros and long e-commerce IDs.
     df = df[(df["product_id"] != "") & (df["source"] != "")].copy()
@@ -97,6 +98,8 @@ def main() -> None:
     if not args.input.is_file():
         parser.error(f"Input CSV not found: {args.input}")
     source = args.source.strip().upper()
+    if not source:
+        parser.error("Source must not be blank. Master was NOT changed.")
     input_df = pd.read_csv(args.input, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     if "product_id" not in input_df.columns and "id" not in input_df.columns:
         parser.error("Input needs 'product_id' or 'id' column")
