@@ -17,6 +17,7 @@ import duckdb
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR.parent))
 from data.database import read_products, save_lead
+from src.search import product_discovery
 
 st.set_page_config(page_title="OCOP Connect | Đặc sản Việt", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
@@ -256,6 +257,7 @@ def home(df: pd.DataFrame):
         <h1>Đặc sản Việt, <span>kết nối muôn nơi.</span></h1>
         <p>Khám phá đặc sản địa phương, tìm nhà cung cấp và điều hướng đến sản phẩm trên các kênh thương mại điện tử trong một cổng thông tin thống nhất.</p>
         <div class="info-strip">🌱 Đa dạng sản phẩm vùng miền &nbsp; • &nbsp; 🧭 Tìm kiếm dễ dàng &nbsp; • &nbsp; 🤝 Kết nối nhà cung cấp</div></div>''', unsafe_allow_html=True)
+    product_discovery()
     if st.button("Khám phá sản phẩm →", type="primary", use_container_width=False):
         st.session_state["page"] = "Sản phẩm OCOP"
         st.rerun()

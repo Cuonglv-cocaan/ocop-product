@@ -30,6 +30,7 @@ if not db_path.is_absolute():
     db_path = PROJECT_ROOT / db_path
 
 DUCKDB_PATH = db_path
+EMBEDDING_MODEL = "models/gemini-embedding-001"
 
 
 def connect():
@@ -243,7 +244,7 @@ def _get_vector_store() -> DuckDB:
     DUCKDB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/gemini-embedding-001",
+        model=EMBEDDING_MODEL,
         google_api_key=api_key,
     )
 

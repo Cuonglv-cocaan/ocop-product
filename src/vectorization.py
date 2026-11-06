@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
+import re
+import time
 import threading
 import uuid
 from pathlib import Path
@@ -11,6 +14,7 @@ import pandas as pd
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from data.database import (
+    EMBEDDING_MODEL,
     PROJECT_ROOT,
     connect,
     get_vector_store,
@@ -25,6 +29,35 @@ VECTOR_TABLE = "ocop_embeddings_gemini"
 
 # Ngăn hai tác vụ vectorization chạy đồng thời trong cùng tiến trình.
 _VECTORIZE_LOCK = threading.Lock()
+
+
+def _wait(seconds):
+    while seconds > 0:
+        interval = min(seconds, 30)
+        time.sleep(interval)
+        seconds -= interval
+
+
+def _embed_with_retry(embeddings, texts, max_retries=3):
+    for attempt in range(max_retries + 1):
+        try:
+            return embeddings.embed_documents(texts)
+        except Exception as exc:
+            message = str(exc)
+            if not re.search(r"\b429\b|RESOURCE_EXHAUSTED", message, re.I):
+                raise
+            # Daily/billing limits cannot be resolved by a short retry.
+            if re.search(r"per.day|requestsperday|billing|credits", message, re.I) and not re.search(r"per.minute|requestsperminute", message, re.I):
+                raise
+            if attempt == max_retries:
+                raise RuntimeError(
+                    "Gemini embedding quota still exceeded after 3 retries. "
+                    "Check AI Studio quotas and rerun vectorization later. Existing vectors are preserved."
+                ) from exc
+            delays = re.findall(r"retry in\s+([\d.]+)s|retryDelay['\"]?\s*:\s*['\"]([\d.]+)s", message, re.I)
+            delay = max([float(a or b) + 2 for a, b in delays] or [60 * (2 ** attempt)])
+            print(f"Embedding rate limit: waiting {delay:.0f}s, retry {attempt + 1}/{max_retries}", flush=True)
+            _wait(delay)
 
 
 def _load_csv(
@@ -152,8 +185,40 @@ def _prepare_documents(df: pd.DataFrame):
                 ),
             )
         )
+        # Include model, metadata and chunking version to invalidate stale vectors.
+        payload = json.dumps(
+            {"text": doc.page_content, "metadata": doc.metadata,
+             "model": EMBEDDING_MODEL, "format_version": 1},
+            ensure_ascii=False, sort_keys=True,
+        )
+        doc.metadata["content_hash"] = hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     return documents
+
+
+def _changed_documents(documents):
+    """Skip only products whose complete stored chunk set matches current hashes."""
+    expected = {}
+    for doc in documents:
+        key = (doc.metadata["source"], doc.metadata["product_id"])
+        expected.setdefault(key, {})[doc.metadata["chunk_id"]] = doc.metadata["content_hash"]
+    stored = {}
+    with connect() as connection:
+        exists = connection.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = ?", [VECTOR_TABLE]
+        ).fetchall()
+        if exists:
+            for chunk_id, metadata in connection.execute(
+                f"SELECT id, metadata FROM {VECTOR_TABLE} WHERE embedding IS NOT NULL AND len(embedding) > 0"
+            ).fetchall():
+                try:
+                    metadata = json.loads(metadata)
+                    key = (metadata.get("source"), metadata.get("product_id"))
+                    stored.setdefault(key, {})[chunk_id] = metadata.get("content_hash")
+                except (TypeError, ValueError, AttributeError):
+                    continue
+    changed = {key for key, chunks in expected.items() if stored.get(key) != chunks}
+    return [doc for doc in documents if (doc.metadata["source"], doc.metadata["product_id"]) in changed], changed
 
 
 def _replace_vectors(keys, documents, vectors):
@@ -221,9 +286,11 @@ def _run_vectorize(
     filepath: str | None,
     source: str | None,
     batch_size: int,
+    force: bool = False,
 ) -> dict:
     # Chạy trong worker thread, gồm cả I/O DuckDB và gọi embeddings.
     with _VECTORIZE_LOCK:
+        batch_size = min(batch_size, 32)
         added = updated = 0
         csv_files = []
         if filepath is not None:
@@ -259,6 +326,20 @@ def _run_vectorize(
         keys = list(selected[["source", "product_id"]].itertuples(index=False, name=None))
 
         documents = _prepare_documents(selected)
+        skipped = 0
+        if not force:
+            documents, changed = _changed_documents(documents)
+            skipped = len(selected) - len(changed)
+            keys = [key for key in keys if key in changed]
+        stats = {
+            "files": len(csv_files), "products": len(selected),
+            "added": added, "updated": updated, "total_products": total,
+            "chunks": len(documents), "collection": VECTOR_TABLE,
+            "vectorized": len(keys), "skipped": skipped,
+        }
+        if not documents:
+            print(f"VECTORIZE: no changes; skipped={skipped}; no embedding API calls", flush=True)
+            return stats
 
         # Initialize inside the worker so synchronous setup does not block asyncio.
         store = asyncio.run(get_vector_store())
@@ -273,8 +354,11 @@ def _run_vectorize(
         # Tạo đủ embeddings trước khi thay dữ liệu vector cũ.
         for start in range(0, len(documents), batch_size):
             batch = documents[start:start + batch_size]
+            if start:
+                # Budget by text, conservatively below the observed 100/min quota.
+                _wait(min(batch_size, start) * 0.8)
 
-            batch_vectors = embeddings.embed_documents(
+            batch_vectors = _embed_with_retry(embeddings,
                 [doc.page_content for doc in batch]
             )
 
@@ -287,20 +371,10 @@ def _run_vectorize(
 
         _replace_vectors(keys, documents, vectors)
 
-        stats = {
-            "files": len(csv_files),
-            "products": len(selected),
-            "added": added,
-            "updated": updated,
-            "total_products": total,
-            "chunks": len(documents),
-            "collection": VECTOR_TABLE,
-        }
-
         print(
             f"VECTORIZE: {stats['products']} products, "
             f"{stats['chunks']} chunks, "
-            f"added={added}, updated={updated}"
+            f"vectorized={stats['vectorized']}, skipped={skipped}, added={added}, updated={updated}"
         )
 
         return stats
@@ -310,6 +384,7 @@ async def run_vectorize_async(
     filepath: str | None = None,
     source: str | None = None,
     batch_size: int = 32,
+    force: bool = False,
 ) -> dict:
     """
     Không truyền filepath: tạo embeddings từ bảng products trong DuckDB.
@@ -330,6 +405,7 @@ async def run_vectorize_async(
         filepath,
         source,
         batch_size,
+        force,
     )
 
 
@@ -340,5 +416,6 @@ if __name__ == "__main__":
     parser.add_argument("--input", help="Optional CSV to import before vectorization")
     parser.add_argument("--source", help="Filter DuckDB source or override CSV source")
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--force", action="store_true", help="Regenerate even unchanged products")
     args = parser.parse_args()
-    asyncio.run(run_vectorize_async(args.input, args.source, args.batch_size))
+    asyncio.run(run_vectorize_async(args.input, args.source, args.batch_size, args.force))

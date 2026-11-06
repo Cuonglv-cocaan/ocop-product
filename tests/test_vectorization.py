@@ -21,6 +21,9 @@ class FakeEmbeddings(Embeddings):
 
 class VectorizationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        wait = patch.object(v, "_wait")
+        wait.start()
+        self.addCleanup(wait.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         override = patch.object(db, "DUCKDB_PATH", Path(self.temp.name) / "test.duckdb")
@@ -42,7 +45,8 @@ class VectorizationTests(unittest.IsolatedAsyncioTestCase):
         second = await v.run_vectorize_async(batch_size=2)
         self.assertEqual(first["products"], 2)
         self.assertEqual(first["files"], 0)
-        self.assertEqual(first["chunks"], second["chunks"])
+        self.assertEqual(second["chunks"], 0)
+        self.assertEqual(second["skipped"], 2)
         count = self.conn.execute(f"SELECT count(*), count(DISTINCT id) FROM {v.VECTOR_TABLE}").fetchall()[0]
         self.assertEqual(count, (first["chunks"], first["chunks"]))
         docs = self.store.similarity_search("tea", k=1)
@@ -62,7 +66,7 @@ class VectorizationTests(unittest.IsolatedAsyncioTestCase):
         before = self.conn.execute(f"SELECT * FROM {v.VECTOR_TABLE} ORDER BY id").fetchall()
         with patch.object(self.store.embeddings, "embed_documents", side_effect=RuntimeError("API failed")):
             with self.assertRaises(RuntimeError):
-                await v.run_vectorize_async()
+                await v.run_vectorize_async(force=True)
         self.assertEqual(before, self.conn.execute(f"SELECT * FROM {v.VECTOR_TABLE} ORDER BY id").fetchall())
 
     async def test_invalid_vectors_keep_old_vectors(self):
@@ -70,7 +74,7 @@ class VectorizationTests(unittest.IsolatedAsyncioTestCase):
         before = self.conn.execute(f"SELECT * FROM {v.VECTOR_TABLE} ORDER BY id").fetchall()
         with patch.object(self.store.embeddings, "embed_documents", side_effect=lambda texts: [[float("nan")] for _ in texts]):
             with self.assertRaises(ValueError):
-                await v.run_vectorize_async()
+                await v.run_vectorize_async(force=True)
         self.assertEqual(before, self.conn.execute(f"SELECT * FROM {v.VECTOR_TABLE} ORDER BY id").fetchall())
 
     async def test_validation(self):
@@ -82,6 +86,20 @@ class VectorizationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await v.run_vectorize_async(source="MISSING")
 
+    def test_rate_limit_retries_server_delay(self):
+        with patch.object(self.store.embeddings, "embed_documents", side_effect=[
+            RuntimeError("429 RESOURCE_EXHAUSTED Please retry in 58.265s."), [[1.0, 2.0]]
+        ]) as embed:
+            self.assertEqual(v._embed_with_retry(self.store.embeddings, ["Tea"]), [[1.0, 2.0]])
+            self.assertEqual(embed.call_count, 2)
+            v._wait.assert_called_once_with(60.265)
+
+    def test_rate_limit_stops_after_three_retries(self):
+        with patch.object(self.store.embeddings, "embed_documents", side_effect=RuntimeError("429 RESOURCE_EXHAUSTED")) as embed:
+            with self.assertRaises(RuntimeError):
+                v._embed_with_retry(self.store.embeddings, ["Tea"])
+            self.assertEqual(embed.call_count, 4)
+
     async def test_csv_import(self):
         csv = Path(self.temp.name) / "input.csv"
         csv.write_text("id,name,price\n002,New tea,100\n", encoding="utf-8")
@@ -89,6 +107,61 @@ class VectorizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["added"], 1)
         self.assertEqual(stats["products"], 1)
         self.assertEqual(stats["total_products"], 3)
+
+    async def test_unchanged_skips_api_and_store_setup(self):
+        await v.run_vectorize_async()
+        with patch.object(v, "get_vector_store", new=AsyncMock(side_effect=AssertionError("Should not initialize"))):
+            stats = await v.run_vectorize_async()
+        self.assertEqual(stats["vectorized"], 0)
+        self.assertEqual(stats["skipped"], 2)
+
+    async def test_new_product_only(self):
+        await v.run_vectorize_async()
+        db.upsert_products(pd.DataFrame([dict(source="TIKI", product_id="002", product_name="New tea")]))
+        with patch.object(self.store.embeddings, "embed_documents", wraps=self.store.embeddings.embed_documents) as embed:
+            stats = await v.run_vectorize_async()
+        self.assertEqual(stats["vectorized"], 1)
+        self.assertEqual(stats["skipped"], 2)
+        self.assertEqual(embed.call_count, 1)
+
+    async def test_missing_chunk_is_repaired(self):
+        await v.run_vectorize_async()
+        self.conn.execute(f"DELETE FROM {v.VECTOR_TABLE} WHERE id = (SELECT id FROM {v.VECTOR_TABLE} WHERE json_extract_string(metadata, '$.source') = 'TIKI' LIMIT 1)")
+        stats = await v.run_vectorize_async()
+        self.assertEqual(stats["vectorized"], 1)
+        self.assertEqual(stats["skipped"], 1)
+
+    async def test_force_regenerates(self):
+        await v.run_vectorize_async()
+        stats = await v.run_vectorize_async(force=True)
+        self.assertEqual(stats["vectorized"], 2)
+        self.assertEqual(stats["skipped"], 0)
+
+    async def test_filtered_retrieval_ignores_duplicate_chunk_crowding(self):
+        from src import search
+        await v.run_vectorize_async()
+        self.conn.execute(f"""INSERT INTO {v.VECTOR_TABLE}
+            SELECT 'duplicate_' || i::VARCHAR, v.text, v.embedding, v.metadata
+            FROM {v.VECTOR_TABLE} v CROSS JOIN range(100) t(i)
+            WHERE json_extract_string(v.metadata, '$.source') = 'TIKI'
+            AND json_extract_string(v.metadata, '$.chunk_index') = '0'
+        """)
+        with patch.object(search, "get_vector_store", new=AsyncMock(return_value=self.store)):
+            docs = await search._retrieve_documents("tea", {("OTHER", "001"): {}}, 50)
+            all_docs = await search._retrieve_documents("tea", {("OTHER", "001"): {}, ("TIKI", "001"): {}}, 50)
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs[0].metadata["source"], "OTHER")
+        self.assertEqual(len(all_docs), 2)
+
+    async def test_failed_update_retries_next_run(self):
+        await v.run_vectorize_async()
+        db.upsert_products(pd.DataFrame([dict(source="TIKI", product_id="001", description="Updated")]))
+        with patch.object(self.store.embeddings, "embed_documents", side_effect=RuntimeError("API failed")):
+            with self.assertRaises(RuntimeError):
+                await v.run_vectorize_async()
+        stats = await v.run_vectorize_async()
+        self.assertEqual(stats["vectorized"], 1)
+        self.assertEqual(stats["skipped"], 1)
 
 
 if __name__ == "__main__":

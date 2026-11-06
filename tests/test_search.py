@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 
+from streamlit.testing.v1 import AppTest
+
 from src import search
 
 
@@ -52,9 +54,9 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
             dict(source="OTHER", product_id="001"),
         ]]
         store = SimpleNamespace(asimilarity_search=AsyncMock(return_value=docs))
-        chain = SimpleNamespace(ainvoke=AsyncMock(return_value="Answer"))
+        chain = SimpleNamespace(ainvoke=AsyncMock(return_value=json.dumps({"answer": "Answer", "recommendations": [dict(source="TIKI", product_id="001"), dict(source="OTHER", product_id="001")]})))
         with patch.object(search, "read_products", return_value=self.rows), \
-                patch.object(search, "get_vector_store", new=AsyncMock(return_value=store)), \
+                patch.object(search, "_retrieve_documents", new=store.asimilarity_search), \
                 patch.object(search, "_get_answer_chain", return_value=chain):
             answer, products, contexts = await search.search_products_async("tea", top_k=2)
         self.assertEqual(answer, "Answer")
@@ -66,9 +68,9 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
         store = SimpleNamespace(asimilarity_search=AsyncMock(return_value=[
             SimpleNamespace(metadata=dict(source=s, product_id="001"))
             for s in ["OTHER", "TIKI"]]))
-        chain = SimpleNamespace(ainvoke=AsyncMock(return_value="Answer"))
+        chain = SimpleNamespace(ainvoke=AsyncMock(return_value=json.dumps({"answer": "Answer", "recommendations": [dict(source="TIKI", product_id="001")]})))
         with patch.object(search, "read_products", return_value=self.rows), \
-                patch.object(search, "get_vector_store", new=AsyncMock(return_value=store)), \
+                patch.object(search, "_retrieve_documents", new=store.asimilarity_search), \
                 patch.object(search, "_get_answer_chain", return_value=chain):
             _, products, _ = await search.search_products_async(
                 "tea", category_filter="drinks", province_filter="HANOI",
@@ -79,7 +81,7 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_matching_vectors_skips_llm(self):
         store = SimpleNamespace(asimilarity_search=AsyncMock(return_value=[]))
         with patch.object(search, "read_products", return_value=self.rows), \
-                patch.object(search, "get_vector_store", new=AsyncMock(return_value=store)), \
+                patch.object(search, "_retrieve_documents", new=store.asimilarity_search), \
                 patch.object(search, "_get_answer_chain") as chain:
             _, products, _ = await search.search_products_async("tea")
         self.assertEqual(products, [])
@@ -92,6 +94,74 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(product["product_id"], "001")
         self.assertIsNone(product["price"])
         self.assertTrue(product["province_name"])
+
+    def test_budget_formats_and_followup(self):
+        for text, amount in [("dưới 300000 đồng", 300000), ("dưới 300.000đ", 300000),
+                             ("tối đa 300k", 300000), ("ngân sách 1,5 triệu", 1500000)]:
+            with self.subTest(text=text):
+                self.assertEqual(search._budget(text), amount)
+        history = [dict(role="user", content="dưới 300k")]
+        self.assertEqual(search._budget("Có trà không?", history), 300000)
+        self.assertEqual(search._budget("dưới 100k", history), 100000)
+        self.assertIsNone(search._budget("không giới hạn ngân sách", history))
+
+    async def test_budget_excludes_expensive_cards_before_ranking(self):
+        docs = [SimpleNamespace(metadata=dict(source="TIKI", product_id="001"))]
+        chain = SimpleNamespace(ainvoke=AsyncMock(return_value=json.dumps({
+            "answer": "Tea", "recommendations": [dict(source="TIKI", product_id="001")]})))
+        with patch.object(search, "read_products", return_value=self.rows), \
+                patch.object(search, "_retrieve_documents", new=AsyncMock(return_value=docs)) as retrieve, \
+                patch.object(search, "_get_answer_chain", return_value=chain):
+            _, products, _ = await search.search_products_async("dưới 150 đồng")
+        self.assertEqual([p["price"] for p in products], [100])
+        self.assertEqual(list(retrieve.call_args.args[1]), [("TIKI", "001")])
+
+    async def test_ai_rejection_and_invalid_ids_have_no_cards(self):
+        docs = [SimpleNamespace(metadata=dict(source="TIKI", product_id="001"))]
+        for response in [dict(answer="Not suitable", recommendations=[]),
+                         dict(answer="Unknown", recommendations=[dict(source="TIKI", product_id="fake")]),
+                         "invalid"]:
+            chain = SimpleNamespace(ainvoke=AsyncMock(return_value=json.dumps(response)))
+            with patch.object(search, "read_products", return_value=self.rows), \
+                    patch.object(search, "_retrieve_documents", new=AsyncMock(return_value=docs)), \
+                    patch.object(search, "_get_answer_chain", return_value=chain):
+                _, products, _ = await search.search_products_async("tea")
+            self.assertEqual(products, [])
+
+
+class DiscoveryTests(unittest.TestCase):
+    def app(self):
+        return AppTest.from_string(
+            "from src.search import product_discovery\nproduct_discovery()"
+        ).run()
+
+    def test_conversation_followup_rerun_and_clear(self):
+        product = dict(product_name="Tea", price=None, ocop_stars=None,
+                       province_name="Hue", source="TIKI", source_url="https://example.com/tea")
+        search = AsyncMock(return_value=("Try this tea", [product], []))
+        with patch("src.search.search_products_async", search):
+            app = self.app()
+            self.assertFalse(app.exception)
+            app.chat_input[0].set_value("Find tea").run()
+            self.assertFalse(app.exception)
+            self.assertEqual(len(app.session_state["discovery_messages"]), 2)
+            app.run()
+            self.assertEqual(search.await_count, 1)
+            app.chat_input[0].set_value("Something cheaper").run()
+            self.assertFalse(app.exception)
+            self.assertEqual(len(search.call_args.kwargs["history"]), 2)
+            self.assertEqual(len(app.session_state["discovery_messages"]), 4)
+            app.button(key="clear_discovery").click().run()
+            self.assertEqual(app.session_state["discovery_messages"], [])
+
+    def test_api_error_keeps_conversation(self):
+        with patch("src.search.search_products_async", new=AsyncMock(side_effect=RuntimeError("Unavailable"))):
+            app = self.app()
+            app.chat_input[0].set_value("Find tea").run()
+            self.assertFalse(app.exception)
+            self.assertTrue(app.error)
+            self.assertEqual(app.session_state["discovery_messages"][0]["content"], "Find tea")
+
 
 
 if __name__ == "__main__":

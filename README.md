@@ -21,9 +21,14 @@ Chạy từ gốc dự án, dùng Python 3.10+ và Chrome cho crawler:
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+Copy-Item .env.example .env
 python data/database.py --migrate-csv data/products_ocop.csv
 python -m streamlit run src/app.py
 ```
+
+Lần cài mới: sao chép `.env.example` khi chưa có `.env`, điền API key để dùng chat, chạy `python -m src.vectorization` trước khi khởi động ứng dụng. Không ghi đè `.env` đã có. Dùng `.venv` riêng để tránh xung đột thư viện của các dự án khác.
+
+Chat nhận diện ngân sách tối đa như “dưới 300k”, “tối đa 300.000 đồng”, “ngân sách 1,5 triệu” và giữ ngân sách khi hỏi tiếp. Câu hỏi có mức giá mới sẽ cập nhật ngân sách; “không giới hạn ngân sách” bỏ giới hạn. Bộ lọc áp dụng trước khi xếp hạng vector, mỗi sản phẩm chỉ chiếm một vị trí. Thẻ hiển thị theo danh sách ID AI chọn, được kiểm tra lại với kết quả tìm kiếm.
 
 Lệnh migrate giữ nguyên CSV cũ, có thể chạy lại mà không tạo sản phẩm trùng. Đóng các tiến trình đang mở DuckDB trước khi nhập hoặc đồng bộ dữ liệu.
 
@@ -77,6 +82,16 @@ Tạo embeddings từ bảng `products` (cần khóa Gemini, ngắt kết nối 
 ```powershell
 python -m src.vectorization
 python -m src.vectorization --source TIKI --batch-size 32
+```
+
+Vectorization lưu SHA-256 trong metadata của từng chunk ở DuckDB. Mặc định chỉ gọi API cho sản phẩm mới, có nội dung/metadata thay đổi hoặc thiếu chunk. Nếu mọi sản phẩm không đổi, không khởi tạo vector store hay gọi API embeddings. Kết quả hiển thị `vectorized` (đã cập nhật) và `skipped` (tái sử dụng).
+
+Embeddings cũ chưa có hash sẽ được tạo lại một lần để thiết lập cơ chế này. Hash bao gồm model embedding và phiên bản định dạng; khi đổi cách chia chunk/định dạng nội dung, tăng phiên bản trong code để cập nhật tương ứng. Chỉ ghi hash cùng vector sau khi tạo thành công, nên lần thất bại có thể chạy lại an toàn.
+
+Để chủ động tạo lại tất cả sản phẩm trong phạm vi được chọn:
+
+```powershell
+python -m src.vectorization --force
 ```
 
 Có thể nhập CSV rồi tạo embeddings cho các sản phẩm trong file:
