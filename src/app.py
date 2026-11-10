@@ -6,6 +6,7 @@ Products: DuckDB; leads: SQLite.
 from __future__ import annotations
 
 import html
+import math
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -42,7 +43,7 @@ html, body, [data-testid="stApp"] {
 [data-testid="stToolbar"] {display: none;}
 .block-container {
     max-width: 1210px;
-    padding-top: 3rem;
+    padding-top: 2rem;
     padding-bottom: 3rem;
 }
 h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
@@ -56,9 +57,27 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 [data-testid="stMarkdownContainer"] a.logo-link:active,
 [data-testid="stMarkdownContainer"] a.logo-link * {text-decoration:none !important;}
 .logo-link:focus-visible {outline:2px solid #39975f;outline-offset:4px;border-radius:4px;}
-.site-brand {font-weight:800;font-size:clamp(18px,2.1vw,25px);color:#164c38;margin-top:4px;letter-spacing:-.7px;white-space:nowrap;line-height:1.4;}
+.site-brand {font-weight:800;font-size:clamp(18px,2.1vw,25px);color:#164c38;margin:0;letter-spacing:-.7px;white-space:nowrap;line-height:1.4;}
 .site-brand span {color:#39975f}
 .tagline {font-size:10px;letter-spacing:1.1px;color:#809385;font-weight:700;margin-top:2px;line-height:1.5;}
+.st-key-site_header {padding:8px 0;}
+.st-key-site_header [data-testid="stHorizontalBlock"] {align-items:center;gap:2rem;}
+.st-key-site_header [data-testid="stColumn"] {min-width:0;}
+.st-key-site_header [data-testid="stVerticalBlock"] {gap:0;justify-content:center;}
+.st-key-site_header .logo-link {display:flex;flex-direction:column;justify-content:center;width:fit-content;}
+.st-key-site_header [data-testid="stSegmentedControl"] {margin:0;}
+.st-key-site_header [data-testid="stSegmentedControl"] [data-baseweb="button-group"] {width:100%;display:flex;align-items:stretch;}
+.st-key-site_header [data-testid="stSegmentedControl"] button {flex:1 1 0;min-width:0;min-height:44px;padding:8px 12px;}
+.st-key-site_header [data-testid="stSegmentedControl"] button p {white-space:nowrap;font-size:13px;line-height:1.4;}
+@media(max-width:900px){
+    .st-key-site_header [data-testid="stHorizontalBlock"] {flex-wrap:wrap;gap:1rem;}
+    .st-key-site_header [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}
+    .st-key-site_header .logo-link {margin-inline:auto;text-align:center;}
+}
+@media(max-width:480px){
+    .st-key-site_header [data-testid="stSegmentedControl"] [data-baseweb="button-group"] {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
+    .st-key-site_header [data-testid="stSegmentedControl"] button {width:100%;}
+}
 .hero {background:#F7F9F1;border:1px solid #eaf0e5;border-radius:22px;padding:40px 42px;min-height:290px;margin:12px 0 24px}
 .hero h1 {font-size:clamp(31px,4vw,50px);line-height:1.25;margin:13px 0;font-weight:800}
 .hero h1 span {color:#2d8459}
@@ -67,9 +86,15 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 .info-strip {background:#eef6e9;border-radius:12px;padding:17px 18px;color:#315e40;font-size:13px;line-height:1.7;margin-top:12px}
 .section-kicker{font-size:11px;letter-spacing:2px;font-weight:800;color:#2b8857;text-transform:uppercase;margin-top:24px}
 .section-desc {font-size:13px;color:#708176;margin-top:-7px}
-.product-card {border:1px solid #e5ebe3;border-radius:14px;overflow:hidden;background:white;margin-bottom:4px;min-height:355px;}
+.product-card {border:1px solid #e5ebe3;border-radius:14px;overflow:hidden;background:white;margin-bottom:4px;}
 .product-photo {width:100%;height:172px;object-fit:contain;background:#fff;display:block;padding:12px;box-sizing:border-box;border-bottom:1px solid #f0f0f0;}
-.product-card-body {padding:13px 14px 5px;min-height:142px}
+.product-card-body {padding:13px 14px 14px;display:flex;flex-direction:column;gap:8px}
+.product-card .product-category {height:30px;line-height:15px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.product-card .product-name {height:80.6px;min-height:0;margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.product-card .product-meta {height:38px;margin:0;display:flex;align-items:center;flex-wrap:wrap;column-gap:8px;row-gap:4px;line-height:17px;overflow:hidden}
+.product-card .star-chip {display:inline-block;flex-shrink:0;white-space:nowrap}
+.product-card .product-price {height:27px;line-height:27px;margin:0;white-space:nowrap}
+.product-card .source-chip {height:15px;line-height:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .product-category {font-size:10px;letter-spacing:.5px;color:#39835b;font-weight:800;text-transform:uppercase}
 .product-name {font-size:13px;font-weight:800;min-height:41px;color:#000;line-height:1.55;margin-top:6px}
 .product-meta{font-size:11px;color:#819186;margin-top:5px}
@@ -140,11 +165,11 @@ def load_products() -> pd.DataFrame:
 
     df["price"] = pd.to_numeric(
         df["price"], errors="coerce"
-    ).fillna(0)
+    )
+    df["price"] = df["price"].where(df["price"].map(lambda x: pd.notna(x) and math.isfinite(x) and x >= 0))
 
-    df["ocop_stars"] = pd.to_numeric(
-        df["ocop_stars"], errors="coerce"
-    ).fillna(0).astype(int)
+    stars = pd.to_numeric(df["ocop_stars"], errors="coerce")
+    df["ocop_stars"] = stars.where(stars.isin([3, 4, 5]), 0).fillna(0).astype(int)
 
     df["image_url"] = df["image_url"].map(valid_http_url)
     df["source_url"] = df["source_url"].map(valid_http_url)
@@ -161,6 +186,8 @@ def load_products() -> pd.DataFrame:
 
 
 def money(value: float) -> str:
+    if pd.isna(value) or not math.isfinite(value) or value < 0:
+        return "Giá chưa cập nhật"
     return f"{value:,.0f}".replace(",", ".") + " ₫"
 
 
@@ -176,7 +203,7 @@ def product_detail(p: dict):
         st.subheader(p["product_name"])
         st.write(f"🗺️ {p['province_name']}  ·  {p['category_name']}")
         st.markdown(
-            f'<span class="star-chip star-chip-{int(p["ocop_stars"])} star-chip-detail">★ Điểm OCOP: {int(p["ocop_stars"])} sao</span>',
+            f'<span class="star-chip star-chip-{int(p["ocop_stars"])} star-chip-detail">{star_label(p["ocop_stars"])}</span>',
             unsafe_allow_html=True,
         )
         st.markdown(
@@ -195,13 +222,17 @@ def product_detail(p: dict):
             st.rerun()
 
 
+def star_label(value):
+    return f"★ {int(value)} sao" if value in (3, 4, 5) else "OCOP chưa cập nhật"
+
+
 def product_card(p: dict):
     image = (f'<img class="product-photo" src="{escape(p["image_url"])}" alt="Ảnh minh họa sản phẩm">'
              if p["image_url"] else '<div class="product-photo" style="display:grid;place-items:center">🌿</div>')
     st.markdown(f"""<div class="product-card">{image}<div class="product-card-body">
     <div class="product-category">{escape(p['category_name'])}</div>
     <div class="product-name">{escape(p['product_name'])}</div>
-    <div class="product-meta">🗺️ {escape(p['province_name'])} &nbsp; <span class="star-chip star-chip-{int(p['ocop_stars'])}">★ {p['ocop_stars']} sao</span></div>
+    <div class="product-meta">🗺️ {escape(p['province_name'])} &nbsp; <span class="star-chip star-chip-{int(p['ocop_stars'])}">{star_label(p['ocop_stars'])}</span></div>
     <div class="product-price">{money(p['price'])}</div>
     <div class="source-chip">{escape(p['source'])}</div>
     </div></div>""", unsafe_allow_html=True)
@@ -385,7 +416,8 @@ except Exception as exc:
     st.error(f"Không đọc được dữ liệu sản phẩm: {exc}")
     st.stop()
 
-head_a, head_b = st.columns([1, 3.6], vertical_alignment="center")
+with st.container(key="site_header"):
+    head_a, head_b = st.columns([1.15, 2.85], gap="large", vertical_alignment="center")
 with head_a:
     st.markdown(
         '<a href="?page=home" class="logo-link" target="_self"><div class="site-brand">🌿 OCOP <span>Connect</span></div><div class="tagline">ĐẶC SẢN VIỆT · KẾT NỐI MUÔN NƠI</div></a>',

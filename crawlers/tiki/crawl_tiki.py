@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import time
-import unicodedata
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -20,45 +19,16 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT.parents[1]))
+from crawlers.provinces import PROVINCE_NAMES, PROVINCE_ALIASES, normalize_location_text, infer_province_hint
+
 OUTPUT = ROOT / 'ocop_output'
 OUTPUT.mkdir(exist_ok=True)
 CSV_PATH = OUTPUT / 'products_tiki.csv'
-URL_FILE = ROOT / 'urls.txt'
+URL_FILE = ROOT / 'urls_tiki.txt'
 DEFAULT_URLS = ['https://tiki.vn/dac-san-phu-quoc-hop-6-chai-thuy-tinh-nuoc-mam-phu-quoc-khai-hoan-43-do-dam-90ml-chai-ocop-5-sao-p94737269.html?spid=94737270']
 KEEP_CHROME_OPEN = True
 WAIT_SECONDS = 3
-
-# Lexical place labels, including historical province names found in titles.
-# This is not an administrative boundary map. Do not infer production origin
-# or automatically remap historical names to current provinces.
-PROVINCE_NAMES = (
-    'An Giang', 'Bà Rịa - Vũng Tàu', 'Bắc Giang', 'Bắc Kạn',
-    'Bạc Liêu', 'Bắc Ninh', 'Bến Tre', 'Bình Định', 'Bình Dương',
-    'Bình Phước', 'Bình Thuận', 'Cà Mau', 'Cần Thơ', 'Cao Bằng',
-    'Đà Nẵng', 'Đắk Lắk', 'Đắk Nông', 'Điện Biên', 'Đồng Nai',
-    'Đồng Tháp', 'Gia Lai', 'Hà Giang', 'Hà Nam', 'Hà Nội',
-    'Hà Tĩnh', 'Hải Dương', 'Hải Phòng', 'Hậu Giang', 'Hòa Bình',
-    'Hưng Yên', 'Khánh Hòa', 'Kiên Giang', 'Kon Tum', 'Lai Châu',
-    'Lâm Đồng', 'Lạng Sơn', 'Lào Cai', 'Long An', 'Nam Định',
-    'Nghệ An', 'Ninh Bình', 'Ninh Thuận', 'Phú Thọ', 'Phú Yên',
-    'Quảng Bình', 'Quảng Nam', 'Quảng Ngãi', 'Quảng Ninh',
-    'Quảng Trị', 'Sóc Trăng', 'Sơn La', 'Tây Ninh', 'Thái Bình',
-    'Thái Nguyên', 'Thanh Hóa', 'Huế', 'Tiền Giang',
-    'TP. Hồ Chí Minh', 'Trà Vinh', 'Tuyên Quang', 'Vĩnh Long',
-    'Vĩnh Phúc', 'Yên Bái',
-)
-PROVINCE_ALIASES = {name: [] for name in PROVINCE_NAMES}
-PROVINCE_ALIASES.update({
-    'Huế': ['Thừa Thiên Huế'],
-    'TP. Hồ Chí Minh': ['Hồ Chí Minh', 'TPHCM', 'TP HCM', 'Sài Gòn'],
-    'Đắk Lắk': ['Đăk Lăk', 'Dak Lak'],
-    'Đắk Nông': ['Đăk Nông'],
-    'Bà Rịa - Vũng Tàu': ['Bà Rịa Vũng Tàu'],
-    'Bình Thuận':['Phan Thiết'],
-    'Quảng Ngãi': ['Lý Sơn'],
-    'An Giang': ['Phú Quốc']
-})
-
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
@@ -292,34 +262,6 @@ def extract_category_levels(*soups):
     return {'category_level_2': '', 'category_level_3': ''}
 
 
-def normalize_location_text(text):
-    text = unicodedata.normalize('NFD', str(text or ''))
-    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
-    text = text.lower().replace('đ', 'd')
-    return re.sub(r'[^a-z0-9]+', ' ', text).strip()
-
-
-def infer_province_hint(title, province_aliases=None):
-    """Title keyword hints only; never confirm manufacturing location."""
-    if province_aliases is None:
-        province_aliases = PROVINCE_ALIASES
-    normalized_title = ' ' + normalize_location_text(title) + ' '
-    matches = set()
-    for province, aliases in province_aliases.items():
-        for alias in [province, *aliases]:
-            label = normalize_location_text(alias)
-            if label and (' ' + label + ' ') in normalized_title:
-                matches.add(province)
-                break
-    candidates = sorted(matches)
-    return {
-        'province_hint': candidates[0] if len(candidates) == 1 else '',
-        'province_hint_source': 'title' if candidates else '',
-        'province_hint_candidates_json': json.dumps(candidates, ensure_ascii=False),
-        'production_province': '',
-    }
-
-
 def snapshot_product_data(soup, pid):
     """Select the main product only, never prices of related products."""
     script = soup.select_one('script#__NEXT_DATA__')
@@ -494,7 +436,7 @@ def backfill_from_debug():
             continue
         try:
             if pid not in cache:
-                cache[pid] = BeautifulSoup(path.read_text(encoding='utf-8'), 'lxml')
+                cache[pid] = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
             soup = cache[pid]
             # A debug file is named by product_id, but sellers can have different
             # prices. Require evidence of the requested spid before backfilling.
@@ -573,8 +515,8 @@ def scrape(url, driver, session):
     rendered_html = driver.page_source
     (OUTPUT / f'debug_{pid}.html').write_text(rendered_html, encoding='utf-8')
 
-    soup = BeautifulSoup(rendered_html, 'lxml')
-    raw_soup = BeautifulSoup(html, 'lxml') if html else soup
+    soup = BeautifulSoup(rendered_html, 'html.parser')
+    raw_soup = BeautifulSoup(html, 'html.parser') if html else soup
     category_levels = extract_category_levels(soup, raw_soup)
     product = find_product_jsonld(soup) or find_product_jsonld(raw_soup)
     offers = product.get('offers') or {}
@@ -593,6 +535,8 @@ def scrape(url, driver, session):
         tag = soup.select_one('meta[property="og:image"]')
         images = normalize_images(tag.get('content') if tag else None)
     title = product.get('name') or (soup.select_one('h1').get_text(' ', strip=True) if soup.select_one('h1') else '')
+    if not title.strip():
+        raise ValueError('Không tìm thấy tên sản phẩm; không lưu trang lỗi hoặc trang bị chặn.')
 
     embedded_desc, embedded_specs = embedded_candidates(soup)
     raw_embedded_desc, raw_embedded_specs = embedded_candidates(raw_soup)

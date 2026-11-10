@@ -105,7 +105,18 @@ def _budget(question, history=None):
             number, unit = match.groups()
             unit = (unit or "").lower()
             if unit in ("triệu", "tr", "nghìn", "ngàn", "k"):
-                return float(number.replace(",", ".")) * (1_000_000 if unit in ("triệu", "tr") else 1000)
+                # Grouped amounts such as 1.500 nghìn are not decimal 1.5.
+                if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", number):
+                    number = number.replace(".", "").replace(",", "")
+                else:
+                    number = number.replace(",", ".")
+                try:
+                    amount = float(number) * (1_000_000 if unit in ("triệu", "tr") else 1000)
+                except ValueError:
+                    continue
+                if math.isfinite(amount):
+                    return amount
+                continue
             return float(number.replace(".", "").replace(",", ""))
     return None
 
@@ -278,10 +289,10 @@ async def search_products_async(
     if not question:
         return "Bạn muốn tìm sản phẩm OCOP nào?", [], []
 
-    if not 1 <= top_k <= 20:
+    if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 20:
         raise ValueError("top_k phải nằm trong khoảng 1–20.")
 
-    if candidate_k < top_k:
+    if isinstance(candidate_k, bool) or not isinstance(candidate_k, int) or candidate_k < top_k:
         raise ValueError(
             "candidate_k phải lớn hơn hoặc bằng top_k."
         )
@@ -462,7 +473,7 @@ def _render_message(message):
                     st.caption(f"{product.get('province_name') or 'Chưa cập nhật'} · {product.get('source', '')}")
                     stars = product.get("ocop_stars")
                     if stars:
-                        st.caption(f"OCOP {stars:g} sao theo dữ liệu nguồn")
+                        st.caption(f"OCOP {stars:g} sao")
                     url = _url(product.get("source_url"))
                     if url:
                         st.link_button("Xem sản phẩm ↗", url)

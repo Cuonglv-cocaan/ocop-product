@@ -3,10 +3,17 @@
 ## Luồng dữ liệu
 
 ```text
-crawlers/tiki/urls.txt
+crawlers/tiki/urls_tiki.txt
   -> crawlers/tiki/crawl_tiki.py
   -> crawlers/tiki/ocop_output/products_tiki.csv
   -> pipelines/sync_products.py
+  -> data/ocop.duckdb (bảng products)
+  -> src/app.py
+
+crawlers/tiktok/urls_tiktok.txt
+  -> crawlers/tiktok/crawl_tiktok.py
+  -> crawlers/tiktok/ocop_output/products_tiktok.csv
+  -> pipelines/sync_products.py (source=TIKTOK)
   -> data/ocop.duckdb (bảng products)
   -> src/app.py
 ```
@@ -36,12 +43,24 @@ Chạy crawler (tự gọi pipeline sau khi hoàn tất):
 
 ```powershell
 python crawlers/tiki/crawl_tiki.py
+python crawlers/tiktok/crawl_tiktok.py
 ```
+
+Tiki và TikTok dùng chung quy tắc nhận diện tỉnh từ tên sản phẩm trong `crawlers/provinces.py`. TikTok chỉ bổ sung tỉnh còn thiếu hoặc “Chưa cập nhật”; giữ nguyên tỉnh đã có. Tên chứa nhiều tỉnh hoặc không có địa danh rõ ràng sẽ không được suy đoán. Đây là gợi ý từ tên, chưa xác minh nơi sản xuất.
+
+Chỉ bổ sung tỉnh cho CSV TikTok đã crawl (không mở Chrome, không đồng bộ database):
+
+```powershell
+python crawlers/tiktok/crawl_tiktok.py --backfill-provinces
+```
+
+Lệnh tạo bản sao lưu trước khi sửa CSV và bỏ qua các dòng đã có tỉnh. Khi chạy crawler bình thường, bước bổ sung này cũng tự chạy trước khi kiểm tra URL mới.
 
 Hoặc chỉ nhập dữ liệu crawler đã có:
 
 ```powershell
 python pipelines/sync_products.py --source TIKI --input crawlers/tiki/ocop_output/products_tiki.csv
+python pipelines/sync_products.py --source TIKTOK --input crawlers/tiktok/ocop_output/products_tiktok.csv
 ```
 
 Pipeline gộp theo khóa `source + product_id`, giữ sản phẩm lịch sử và không ghi đè dữ liệu đã biết bằng ô trống. Tỉnh "Chưa cập nhật" không thay thế tỉnh đã biết. Giao dịch lỗi sẽ rollback. Không còn tùy chọn `--master`; database đích dùng `DUCKDB_PATH`. Đường dẫn `--input` tính từ thư mục chạy lệnh.

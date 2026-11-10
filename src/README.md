@@ -21,4 +21,8 @@ Khi triển khai, dùng `src/app.py` và requirements ở gốc, nhập dữ li�
 
 Xem [README dự án](../README.md) để biết cách đồng bộ, cấu hình và chuyển leads DuckDB cũ sang SQLite.
 
+Giá thiếu hoặc không hợp lệ hiển thị “Giá chưa cập nhật”, không quy đổi thành 0 đồng. Sao OCOP chỉ hiển thị hạng 3, 4, 5 theo nguồn; dữ liệu khác hiển thị “OCOP chưa cập nhật”.
+
+Chạy kiểm thử từ gốc dự án: `python -m unittest discover -s tests`. Kiểm thử dùng database tạm và embeddings giả, không gọi Gemini hoặc crawl trang thật.
+
 Triển khai Community Cloud: xem hướng dẫn catalog sạch và DUCKDB_READ_ONLY trong README gốc. SQLite cục bộ không được bảo đảm lưu bền vững trên cloud.

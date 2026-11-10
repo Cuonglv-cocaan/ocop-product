@@ -28,6 +28,7 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_parameters(self):
         for kwargs in [dict(top_k=0), dict(top_k=21), dict(candidate_k=1),
+                       dict(top_k=True), dict(top_k=2.5), dict(candidate_k=5.5),
                        dict(min_stars=2), dict(max_price=-1), dict(max_price=float("nan"))]:
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 await search.search_products_async("tea", **kwargs)
@@ -103,7 +104,8 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
 
     def test_budget_formats_and_followup(self):
         for text, amount in [("dưới 300000 đồng", 300000), ("dưới 300.000đ", 300000),
-                             ("tối đa 300k", 300000), ("ngân sách 1,5 triệu", 1500000)]:
+                             ("tối đa 300k", 300000), ("ngân sách 1,5 triệu", 1500000),
+                             ("dưới 1.500 nghìn", 1500000), ("dưới 1.000.000k", 1000000000)]:
             with self.subTest(text=text):
                 self.assertEqual(search._budget(text), amount)
         history = [dict(role="user", content="dưới 300k")]
