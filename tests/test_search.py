@@ -82,6 +82,17 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(products), 1)
         self.assertEqual(products[0]["source"], "TIKI")
 
+    async def test_allowed_keys_restrict_candidates_before_retrieval(self):
+        docs = [SimpleNamespace(metadata=dict(source=s, product_id='001')) for s in ['TIKI', 'OTHER']]
+        chain = SimpleNamespace(ainvoke=AsyncMock(return_value=json.dumps({
+            'answer': 'Answer', 'recommendations': [dict(source='OTHER', product_id='001')]})))
+        with patch.object(search, 'read_products', return_value=self.rows), \
+                patch.object(search, '_retrieve_documents', new_callable=AsyncMock, return_value=docs) as retrieve, \
+                patch.object(search, '_get_answer_chain', return_value=chain):
+            _, products, _ = await search.search_products_async('tea', allowed_product_keys={('OTHER', '001')})
+        self.assertEqual(set(retrieve.await_args.args[1]), {('OTHER', '001')})
+        self.assertEqual([p['source'] for p in products], ['OTHER'])
+
     async def test_no_matching_vectors_skips_llm(self):
         store = SimpleNamespace(asimilarity_search=AsyncMock(return_value=[]))
         with patch.object(search, "read_products", return_value=self.rows), \

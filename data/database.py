@@ -12,6 +12,10 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import duckdb
 from dotenv import load_dotenv
+if __package__:
+    from .categories import canonical_category
+else:
+    from categories import canonical_category
 
 if TYPE_CHECKING:
     from langchain_community.vectorstores import DuckDB
@@ -146,7 +150,9 @@ def read_products() -> pd.DataFrame:
     with connect() as connection:
         if not DUCKDB_READ_ONLY:
             initialize_products(connection)
-        return connection.execute("SELECT * FROM products ORDER BY source, product_id").fetchdf()
+        products = connection.execute("SELECT * FROM products ORDER BY source, product_id").fetchdf()
+    products["category_name"] = products["category_name"].map(canonical_category)
+    return products
 
 
 def upsert_products(df: pd.DataFrame, source: str | None = None) -> tuple[int, int, int]:

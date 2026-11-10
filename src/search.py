@@ -273,6 +273,7 @@ async def search_products_async(
     top_k: int = 5,
     candidate_k: int = 50,
     history: list[dict] | None = None,
+    allowed_product_keys: set[tuple[str, str]] | None = None,
 ):
     """
     Trả về:
@@ -327,6 +328,8 @@ async def search_products_async(
         product = _serialize_product(row)
 
         if not product["product_id"] or not product["product_name"]:
+            continue
+        if allowed_product_keys is not None and _key(product["source"], product["product_id"]) not in allowed_product_keys:
             continue
 
         if _matches(
@@ -479,25 +482,28 @@ def _render_message(message):
                         st.link_button("Xem sản phẩm ↗", url)
 
 
-def product_discovery():
+def product_discovery(key_prefix: str = "discovery"):
+    messages_key = f"{key_prefix}_messages"
+    clear_key = "clear_discovery" if key_prefix == "discovery" else f"clear_{key_prefix}"
     with st.container(border=True):
         st.subheader("✨ Khám phá sản phẩm cùng AI")
         st.caption("Chia sẻ nhu cầu, khoảng giá hoặc vùng miền bạn thích. Bạn có thể hỏi tiếp để tìm lựa chọn phù hợp hơn.")
-        messages = st.session_state.setdefault("discovery_messages", [])
-        if messages and st.button("Bắt đầu cuộc trò chuyện mới", key="clear_discovery"):
-            st.session_state["discovery_messages"] = []
-            st.rerun()
+        messages = st.session_state.setdefault(messages_key, [])
+        if messages:
+            st.button("Bắt đầu cuộc trò chuyện mới", key=clear_key,
+                      on_click=st.session_state.__setitem__, args=(messages_key, []))
         if messages:
             with st.container(height=480):
                 for message in messages:
                     _render_message(message)
         question = st.chat_input(
             "Ví dụ: Gợi ý đặc sản làm quà dưới 300.000 đồng",
-            key="discovery_question", max_chars=2000,
+            key=f"{key_prefix}_question", max_chars=2000,
         )
         if question and question.strip():
             history = [m for m in messages if not m.get("error")]
             messages.append({"role": "user", "content": question.strip()})
+            _render_message(messages[-1])
             try:
                 with st.spinner("Đang tìm sản phẩm phù hợp với bạn…"):
                     answer, products, _ = asyncio.run(search_products_async(
@@ -510,4 +516,4 @@ def product_discovery():
                     "role": "assistant", "error": True,
                     "content": "Chưa thể tìm sản phẩm lúc này. Bạn hãy gửi lại câu hỏi sau ít phút.",
                 })
-            st.rerun()
+            _render_message(messages[-1])

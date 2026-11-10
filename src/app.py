@@ -5,9 +5,13 @@ Products: DuckDB; leads: SQLite.
 """
 from __future__ import annotations
 
+import base64
 import html
+import importlib
+import inspect
 import math
 import sys
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -18,7 +22,13 @@ import sqlite3
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR.parent))
 from data.database import DUCKDB_PATH, read_products, save_lead
-from src.search import product_discovery
+from src import search as search_module
+
+# Streamlit can retain an imported module while rerunning the edited app.
+# Refresh the older discovery API once when upgrading a running session.
+if "key_prefix" not in inspect.signature(search_module.product_discovery).parameters:
+    importlib.reload(search_module)
+product_discovery = search_module.product_discovery
 
 st.set_page_config(page_title="OCOP Connect | Đặc sản Việt", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
@@ -57,9 +67,10 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 [data-testid="stMarkdownContainer"] a.logo-link:active,
 [data-testid="stMarkdownContainer"] a.logo-link * {text-decoration:none !important;}
 .logo-link:focus-visible {outline:2px solid #39975f;outline-offset:4px;border-radius:4px;}
-.site-brand {font-weight:800;font-size:clamp(18px,2.1vw,25px);color:#164c38;margin:0;letter-spacing:-.7px;white-space:nowrap;line-height:1.4;}
-.site-brand span {color:#39975f}
-.tagline {font-size:10px;letter-spacing:1.1px;color:#809385;font-weight:700;margin-top:2px;line-height:1.5;}
+[data-testid="stMarkdownContainer"] a.logo-link {color:#164c38 !important;display:inline-flex;flex-direction:column;max-width:100%;}
+[data-testid="stMarkdownContainer"] .logo-link .site-brand {display:block;font-weight:800;font-size:clamp(18px,2.1vw,25px);color:#164c38 !important;margin:0;letter-spacing:-.7px;white-space:nowrap;line-height:1.4;}
+[data-testid="stMarkdownContainer"] .logo-link .brand-accent {color:#39975f !important;}
+[data-testid="stMarkdownContainer"] .logo-link .tagline {display:block;font-size:9px;letter-spacing:.7px;color:#809385 !important;font-weight:700;margin-top:2px;line-height:1.5;}
 .st-key-site_header {padding:8px 0;}
 .st-key-site_header [data-testid="stHorizontalBlock"] {align-items:center;gap:2rem;}
 .st-key-site_header [data-testid="stColumn"] {min-width:0;}
@@ -94,17 +105,20 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 .product-card .product-meta {height:38px;margin:0;display:flex;align-items:center;flex-wrap:wrap;column-gap:8px;row-gap:4px;line-height:17px;overflow:hidden}
 .product-card .star-chip {display:inline-block;flex-shrink:0;white-space:nowrap}
 .product-card .product-price {height:27px;line-height:27px;margin:0;white-space:nowrap}
-.product-card .source-chip {height:15px;line-height:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.product-card .source-chip {height:24px;min-width:0;}
 .product-category {font-size:10px;letter-spacing:.5px;color:#39835b;font-weight:800;text-transform:uppercase}
 .product-name {font-size:13px;font-weight:800;min-height:41px;color:#000;line-height:1.55;margin-top:6px}
 .product-meta{font-size:11px;color:#819186;margin-top:5px}
 .product-price{font-size:18px;color:#c62828;font-weight:800;margin:10px 0}
 .product-price-detail{font-size:26px;line-height:1.4}
 .star-chip {background:#fff4d9;color:#9c6a09;font-weight:700;padding:4px 7px;border-radius:5px;font-size:10px}
+.star-chip-0 {background:#f1f3f5;color:#667085}
 .star-chip-4 {background:#e8f5ec;color:#216e39}
 .star-chip-5 {background:#fdebec;color:#b42332}
 .star-chip-detail {display:inline-block;font-size:14px;padding:6px 10px;margin:4px 0 8px}
-.source-chip {font-size:10px;color:#7d8f80}
+.source-chip {display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;line-height:16px;color:#59665e}
+.source-logo {width:28px;height:20px;object-fit:contain;flex-shrink:0;border-radius:3px;display:block}
+.source-name {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stat {padding:15px 18px;border:1px solid #e7ede4;border-radius:14px;background:#fff}
 .stat strong{display:block;font-size:25px;color:#164c38}
 .stat small{font-size:11px;color:#789082}
@@ -223,7 +237,27 @@ def product_detail(p: dict):
 
 
 def star_label(value):
-    return f"★ {int(value)} sao" if value in (3, 4, 5) else "OCOP chưa cập nhật"
+    return f"★ {int(value)} sao" if value in (3, 4, 5) else "Chưa cập nhật"
+
+
+@lru_cache(maxsize=8)
+def source_badge(source: str) -> str:
+    key = source.strip().upper().replace(" ", "").replace("_", "").replace("-", "")
+    brands = {
+        "TIKI": ("tiki.png", "image/png", "Tiki"),
+        "TIKTOK": ("tiktokshop.webp", "image/webp", "TikTok Shop"),
+        "TIKTOKSHOP": ("tiktokshop.webp", "image/webp", "TikTok Shop"),
+    }
+    brand = brands.get(key)
+    logo = ""
+    label = source
+    if brand:
+        filename, mime_type, label = brand
+        icon_path = BASE_DIR.parent / "data" / "icons" / filename
+        if icon_path.is_file():
+            encoded = base64.b64encode(icon_path.read_bytes()).decode("ascii")
+            logo = f'<img class="source-logo" src="data:{mime_type};base64,{encoded}" alt="" aria-hidden="true">'
+    return f'<div class="source-chip">{logo}<span class="source-name">{escape(label)}</span></div>'
 
 
 def product_card(p: dict):
@@ -234,10 +268,22 @@ def product_card(p: dict):
     <div class="product-name">{escape(p['product_name'])}</div>
     <div class="product-meta">🗺️ {escape(p['province_name'])} &nbsp; <span class="star-chip star-chip-{int(p['ocop_stars'])}">{star_label(p['ocop_stars'])}</span></div>
     <div class="product-price">{money(p['price'])}</div>
-    <div class="source-chip">{escape(p['source'])}</div>
+    {source_badge(p['source'])}
     </div></div>""", unsafe_allow_html=True)
     if st.button("Xem chi tiết →", key=f"detail_{p['source']}_{p['product_id']}", use_container_width=True):
         product_detail(p)
+
+
+def clear_product_filters():
+    for key, value in {
+        "category": "Tất cả", "stars_filter": "Tất cả",
+        "province": "Tất cả", "source_filter": "Tất cả", "product_sort": "Mặc định",
+    }.items():
+        st.session_state[key] = value
+
+
+def source_label(source: str) -> str:
+    return {"TIKI": "Tiki", "TIKTOK": "TikTok Shop", "TIKTOKSHOP": "TikTok Shop"}.get(source, source)
 
 
 def directory(df: pd.DataFrame):
@@ -245,39 +291,44 @@ def directory(df: pd.DataFrame):
     st.header("Khám phá sản phẩm vùng miền")
     st.markdown('<div class="section-desc">Tìm kiếm, so sánh và kết nối đến nguồn bán từ nhiều kênh thương mại điện tử.</div>', unsafe_allow_html=True)
 
-    left, c2, c3, c4 = st.columns([2.3, 1.3, 1.2, 1.3], gap="small")
-    with left:
-        q = st.text_input("Tìm kiếm", placeholder="Tên sản phẩm, tỉnh, danh mục...", key="query")
+    product_discovery(key_prefix="directory_discovery")
+    st.subheader("Danh sách sản phẩm")
+    st.caption("Lọc danh sách theo danh mục, hạng OCOP, tỉnh/thành và nguồn. Gợi ý AI ở trên hoạt động độc lập.")
+    c2, c3, c4, c5 = st.columns([1.5, 1, 1.2, 1.1], gap="small")
     with c2:
         categories = ["Tất cả"] + sorted(df["category_name"].astype(str).unique().tolist())
         cat = st.selectbox("Danh mục", categories, key="category")
     with c3:
-        stars = st.selectbox("Hạng OCOP", ["Tất cả", "3 sao", "4 sao", "5 sao"], key="stars_filter")
-        if stars != "Tất cả":
-            st.markdown(
-                f'<span class="star-chip star-chip-{int(stars.split()[0])}">★ {stars}</span>',
-                unsafe_allow_html=True,
-            )
+        star_options = {"3 sao": 3, "4 sao": 4, "5 sao": 5, "Chưa cập nhật": 0}
+        stars = st.selectbox("Hạng OCOP", ["Tất cả", *star_options], key="stars_filter")
     with c4:
         provinces = ["Tất cả"] + sorted(df["province_name"].astype(str).unique().tolist())
         province = st.selectbox("Tỉnh/Thành", provinces, key="province")
+    with c5:
+        sources = ["Tất cả"] + sorted(df["source"].unique().tolist())
+        source = st.selectbox("Nguồn", sources, format_func=source_label, key="source_filter")
 
     filtered = df.copy()
-    if q.strip():
-        search_columns = filtered[["product_name", "category_name", "province_name", "description"]].astype(str).agg(" ".join, axis=1)
-        filtered = filtered[search_columns.str.contains(q.strip(), case=False, regex=False, na=False)]
     if cat != "Tất cả":
         filtered = filtered[filtered["category_name"] == cat]
     if stars != "Tất cả":
-        filtered = filtered[filtered["ocop_stars"] == int(stars.split()[0])]
+        filtered = filtered[filtered["ocop_stars"] == star_options[stars]]
     if province != "Tất cả":
         filtered = filtered[filtered["province_name"] == province]
+    if source != "Tất cả":
+        filtered = filtered[filtered["source"] == source]
 
-    a, b = st.columns([3, 1.3])
+    a, b, reset = st.columns([2.5, 1.5, 1.1], gap="small", vertical_alignment="center")
     with a:
         st.caption(f"Hiển thị {len(filtered)} / {len(df)} sản phẩm")
     with b:
-        sort = st.selectbox("Sắp xếp", ["Mặc định", "Giá tăng dần", "Giá giảm dần", "Sao cao nhất"], label_visibility="collapsed")
+        sort = st.selectbox("Sắp xếp", ["Mặc định", "Giá tăng dần", "Giá giảm dần", "Sao cao nhất"],
+                            label_visibility="collapsed", key="product_sort")
+    with reset:
+        active = any(value != "Tất cả" for value in (cat, stars, province, source)) or sort != "Mặc định"
+        st.button("Xóa bộ lọc", key="clear_filters", on_click=clear_product_filters,
+                  disabled=not active, use_container_width=True,
+                  help="Đặt lại bộ lọc và sắp xếp của danh sách sản phẩm. Giữ nguyên hội thoại AI.")
     if sort == "Giá tăng dần":
         filtered = filtered.sort_values("price")
     elif sort == "Giá giảm dần":
@@ -286,7 +337,7 @@ def directory(df: pd.DataFrame):
         filtered = filtered.sort_values("ocop_stars", ascending=False)
 
     if filtered.empty:
-        st.warning("Không tìm thấy sản phẩm phù hợp. Hãy thử từ khóa hoặc bộ lọc khác.")
+        st.warning("Không tìm thấy sản phẩm phù hợp. Hãy thử bộ lọc khác.")
         return
     rows = filtered.to_dict("records")
     for start in range(0, len(rows), 4):
@@ -320,11 +371,15 @@ def home(df: pd.DataFrame):
     st.markdown('<div class="section-kicker">KHÁM PHÁ</div>', unsafe_allow_html=True)
     st.header("Danh mục nổi bật")
     icons = {
-        "Gia Vị và Chế Biến": "🧂",
-        "Thực phẩm Đóng hộp và Khô": "🥫",
-        "Đồ Ăn Vặt": "🍪",
+        "Gia vị và chế biến": "🧂",
+        "Thực phẩm đóng hộp và khô": "🥫",
+        "Đồ ăn vặt": "🍪",
         "Đồ uống": "🍵",
-        "Sản phẩm thiên nhiên & Khác": "🌿",
+        "Sản phẩm thiên nhiên và khác": "🌿",
+        "Bột và nguyên liệu làm bánh": "🌾",
+        "Chăm sóc cơ thể": "🧴",
+        "Sản phẩm hỗ trợ sức khỏe": "💚",
+        "Hương thơm và đồ thờ cúng": "🪔",
         "Rượu, bia và nước lên men": "🍷",
         "Đồ dùng cho bé": "🍼",
         "Thực phẩm": "🍯",
@@ -420,7 +475,7 @@ with st.container(key="site_header"):
     head_a, head_b = st.columns([1.15, 2.85], gap="large", vertical_alignment="center")
 with head_a:
     st.markdown(
-        '<a href="?page=home" class="logo-link" target="_self"><div class="site-brand">🌿 OCOP <span>Connect</span></div><div class="tagline">ĐẶC SẢN VIỆT · KẾT NỐI MUÔN NƠI</div></a>',
+        '<a href="?page=home" class="logo-link" target="_self" aria-label="OCOP Connect - Trang chủ"><span class="site-brand">🌿 OCOP <span class="brand-accent">Connect</span></span><span class="tagline">ĐẶC SẢN VIỆT · KẾT NỐI MUÔN NƠI</span></a>',
         unsafe_allow_html=True,
     )
 with head_b:

@@ -151,3 +151,9 @@ GEMINI_MODEL = "gemini-3.5-flash-lite"
 Ứng dụng chỉ đọc DuckDB và ghi leads vào SQLite độc lập. Không chạy pipeline/vectorization ở chế độ DUCKDB_READ_ONLY=true. Cloud không tự truy cập file trên máy cá nhân; cần đưa catalog lên môi trường triển khai.
 
 SQLite cục bộ trên Community Cloud không được bảo đảm lưu trữ lâu dài: dữ liệu có thể mất khi khởi động lại/triển khai lại. Nếu leads cần lưu bền vững, cần cơ chế sao lưu ngoài hoặc dịch vụ database bền vững. Xem https://docs.streamlit.io/develop/concepts/connections/connecting-to-data.
+
+### Danh mục tiếng Việt dùng chung
+
+`data/categories.py` định nghĩa bảng ánh xạ `CATEGORY_ALIASES` cho Tiki và TikTok. `read_products()` trả về danh mục chuẩn tiếng Việt cho giao diện, bộ lọc và tìm kiếm; danh mục gốc trong DuckDB và CSV crawler được giữ nguyên. Ví dụ `Cooking Sauces` được gom vào `Gia vị và chế biến`, `Dried Snacks` vào `Đồ ăn vặt`. Đây là bộ danh mục nội bộ của ứng dụng, không phải hệ thống phân loại OCOP chính thức.
+
+Danh mục chưa có ánh xạ hiển thị `Chưa phân loại`. Khi nguồn có danh mục mới, thêm nguyên tên/đường dẫn danh mục vào nhóm phù hợp trong `CATEGORY_ALIASES`; không cần sửa dữ liệu cũ hay chạy lại crawler. Embeddings đã tạo trước đó cần được cập nhật nếu muốn nội dung vector phản ánh danh mục mới.
