@@ -12,6 +12,30 @@ from data import database as db
 
 
 class SchemaTests(unittest.TestCase):
+    def test_catalog_automatically_refreshes_and_can_be_overwritten(self):
+        row = dict(source='TIKI', product_id='001', product_name='Tea')
+        db.upsert_products(pd.DataFrame([row]))
+        catalog = db.DUCKDB_PATH.with_name('catalog.duckdb')
+        with duckdb.connect(str(catalog), read_only=True) as conn:
+            self.assertEqual(conn.execute('SELECT product_name FROM products').fetchone()[0], 'Tea')
+        db.upsert_products(pd.DataFrame([{**row, 'product_name': 'New tea'}]))
+        db.export_catalog(catalog)
+        with duckdb.connect(str(catalog), read_only=True) as conn:
+            self.assertEqual(conn.execute('SELECT product_name FROM products').fetchone()[0], 'New tea')
+            self.assertNotIn('leads', [r[0] for r in conn.execute('SHOW TABLES').fetchall()])
+
+    def test_failed_export_preserves_existing_catalog_and_source(self):
+        db.upsert_products(pd.DataFrame([dict(source='TIKI', product_id='001', product_name='Tea')]))
+        catalog = db.DUCKDB_PATH.with_name('catalog.duckdb')
+        before = catalog.read_bytes()
+        with patch.object(db, '_write_catalog', side_effect=RuntimeError('Export failed')):
+            with self.assertRaises(RuntimeError):
+                db.upsert_products(pd.DataFrame([dict(source='TIKI', product_id='001', product_name='New tea')]))
+        self.assertEqual(catalog.read_bytes(), before)
+        self.assertEqual(db.read_products().iloc[0]['product_name'], 'New tea')
+        with self.assertRaises(ValueError):
+            db.export_catalog(db.DUCKDB_PATH)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

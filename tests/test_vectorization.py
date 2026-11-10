@@ -49,6 +49,9 @@ class VectorizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second["skipped"], 2)
         count = self.conn.execute(f"SELECT count(*), count(DISTINCT id) FROM {v.VECTOR_TABLE}").fetchall()[0]
         self.assertEqual(count, (first["chunks"], first["chunks"]))
+        import duckdb
+        with duckdb.connect(str(db.DUCKDB_PATH.with_name('catalog.duckdb')), read_only=True) as catalog:
+            self.assertEqual(catalog.execute(f'SELECT count(*) FROM {v.VECTOR_TABLE}').fetchone()[0], first['chunks'])
         docs = self.store.similarity_search("tea", k=1)
         self.assertIn(docs[0].metadata["source"], ("TIKI", "OTHER"))
         self.assertEqual(docs[0].metadata["product_id"], "001")

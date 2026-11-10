@@ -21,6 +21,7 @@ from data.database import (
     normalize,
     read_products,
     upsert_products,
+    sync_catalog,
 )
 
 
@@ -338,6 +339,7 @@ def _run_vectorize(
             "vectorized": len(keys), "skipped": skipped,
         }
         if not documents:
+            sync_catalog()
             print(f"VECTORIZE: no changes; skipped={skipped}; no embedding API calls", flush=True)
             return stats
 
@@ -370,6 +372,7 @@ def _run_vectorize(
             vectors.extend(batch_vectors)
 
         _replace_vectors(keys, documents, vectors)
+        sync_catalog()
 
         print(
             f"VECTORIZE: {stats['products']} products, "

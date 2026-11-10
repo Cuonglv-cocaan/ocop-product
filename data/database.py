@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import tempfile
 from contextlib import closing
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -168,10 +169,11 @@ def upsert_products(df: pd.DataFrame, source: str | None = None) -> tuple[int, i
                             if name not in ("source", "product_id"))
             )
             connection.commit()
-            return added, updated, len(result)
         except Exception:
             connection.rollback()
             raise
+    sync_catalog()
+    return added, updated, len(result)
 
 
 def migrate_csv_products(path: Path, source: str | None = None) -> tuple[int, int, int]:
@@ -247,12 +249,31 @@ def migrate_duckdb_leads(path: Path | None = None) -> int:
 
 
 def export_catalog(path: Path) -> None:
-    """Create a new deployable DuckDB containing only products and embeddings."""
+    """Atomically replace the catalog with products and embeddings only."""
     path = Path(path).resolve()
-    if path.exists():
-        raise FileExistsError("Export target already exists; choose a new filename")
+    if path == DUCKDB_PATH.resolve():
+        raise ValueError('Catalog destination must differ from the source database')
     path.parent.mkdir(parents=True, exist_ok=True)
-    with duckdb.connect(str(DUCKDB_PATH), read_only=True) as source:
+    with tempfile.TemporaryDirectory(prefix='catalog_export_', dir=path.parent) as directory:
+        temporary = Path(directory) / 'catalog.duckdb'
+        _write_catalog(temporary)
+        temporary.replace(path)
+
+
+def sync_catalog() -> None:
+    """Refresh the sibling catalog after an application database write."""
+    if DUCKDB_READ_ONLY or DUCKDB_PATH.name.lower() == 'catalog.duckdb':
+        return
+    try:
+        export_catalog(DUCKDB_PATH.with_name('catalog.duckdb'))
+    except Exception as exc:
+        raise RuntimeError('Database đã cập nhật nhưng chưa cập nhật được catalog.duckdb. '
+                           'Đóng ứng dụng/DBeaver đang mở catalog rồi chạy lại --export-catalog.') from exc
+
+
+def _write_catalog(path: Path) -> None:
+    # Match the existing connection configuration, including cached vector stores.
+    with connect() as source:
         with duckdb.connect(str(path)) as target:
             target.begin()
             try:

@@ -136,7 +136,7 @@ python data/database.py --migrate-duckdb-leads data/ocop.duckdb
 python data/database.py --export-catalog data/catalog.duckdb
 ```
 
-Export chỉ sao chép products và embeddings, không chứa bảng leads; từ chối ghi đè file đích đã có. Chỉ file `data/catalog.duckdb` được cho phép qua .gitignore để triển khai. Kiểm tra nội dung danh mục trước khi công khai.
+Export chỉ sao chép products và embeddings, không chứa bảng leads; tự ghi đè file đích đã có, không tạo backup. Bản mới được tạo hoàn chỉnh trước khi thay file cũ. Sau khi đồng bộ sản phẩm hoặc tạo embeddings thành công, code tự cập nhật `catalog.duckdb` trong cùng thư mục với database nguồn. Thay đổi trực tiếp bằng SQL/DBeaver cần chạy lệnh export thủ công. Đóng kết nối đang mở catalog trước khi cập nhật. Nếu export lỗi, database nguồn vẫn giữ thay đổi đã commit và lệnh báo lỗi để chạy lại export. Chỉ file `data/catalog.duckdb` được cho phép qua .gitignore để triển khai. Cần commit/push catalog mới để cloud nhận cập nhật.
 
 Cấu hình trong phần Secrets của Community Cloud:
 
