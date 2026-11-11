@@ -80,11 +80,17 @@ class AuthIntegrationTests(unittest.TestCase):
 
     def test_seller_permissions_and_admin_functions(self):
         buyer_lead = self.save(self.buyer1)
-        seller_lead = self.save(self.seller, 'seller')
+        # Existing seller leads remain readable; new registrations use supplier profiles.
+        with postgres.transaction() as connection:
+            seller_lead = connection.execute('''INSERT INTO business.leads(kind,name,email,phone,note,user_id)
+                VALUES (%s,'Legacy seller','demo@example.com','0','Note',%s) RETURNING id''',
+                (leads.KINDS['seller'], self.seller.user_id)).fetchone()[0]
         self.assertEqual([r['id'] for r in leads.read_leads(self.seller)], [seller_lead])
         self.assertEqual(leads.read_leads(self.seller, buyer_lead), [])
         with self.assertRaises(auth.AccessDenied):
             self.save(self.seller, 'buyer')
+        with self.assertRaises(auth.AccessDenied):
+            self.save(self.seller, 'seller')
         for session in (self.buyer1, self.seller):
             with self.assertRaises(auth.AccessDenied):
                 accounts.list_accounts(session)

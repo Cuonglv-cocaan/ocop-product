@@ -284,11 +284,11 @@ Lệnh đổi mật khẩu không tự kích hoạt tài khoản inactive, khôn
 | Vai trò | Gửi yêu cầu | Đọc/sửa yêu cầu | Tài khoản |
 | --- | --- | --- | --- |
 | Khách | Không | Không | Chỉ đăng nhập |
-| Buyer | Nhu cầu mua / tìm nguồn hàng | Chỉ của mình | Không quản trị |
-| Seller | Đăng ký nhà cung cấp | Chỉ đăng ký của mình | Không quản trị |
+| Buyer | Nhu cầu mua / tìm nguồn hàng; hồ sơ nhà cung cấp chờ duyệt | Chỉ của mình | Không quản trị |
+| Seller | Hồ sơ đơn vị và cung ứng theo membership + approved | Yêu cầu cũ và đơn vị của mình | Không quản trị |
 | Admin | Quản lý, không gửi thay người khác | Tất cả, kể cả leads cũ chưa có chủ | Xem danh sách và bật/tắt tài khoản khác |
 
-Không có nút đổi role, chọn user_id, chuyển nhanh tài khoản hoặc đăng nhập thay người khác. Admin không thể tự khóa tài khoản đang dùng. Người dùng không được tự thay role. Chức năng seller hiện chỉ gồm đăng ký cung cấp và quản lý đăng ký của chính họ; không có danh sách nhu cầu buyer hoặc luồng nhận/chia sẻ lead tự động.
+Không có nút đổi role, chọn user_id, chuyển nhanh tài khoản hoặc đăng nhập thay người khác. Admin không thể tự khóa tài khoản đang dùng. Người dùng không được tự thay role. Seller quản lý hồ sơ/cung ứng của đơn vị mình theo phần nhà cung cấp phía dưới; không có danh sách nhu cầu buyer hoặc luồng nhận/chia sẻ lead tự động.
 
 `data/auth.py` phát identity có chữ ký nội bộ sau khi kiểm tra mật khẩu. `st.session_state` chỉ giữ phiên gồm user_id, auth_version và chữ ký, không giữ role làm căn cứ phân quyền. Khóa chữ ký ngẫu nhiên tồn tại trong tiến trình; restart app hoặc refresh tạo phiên mới có thể yêu cầu đăng nhập lại, phù hợp demo. Không có cookie đăng nhập bền vững. Nút Đăng xuất xóa toàn bộ session state: identity, widget mật khẩu, bản nháp, dữ liệu riêng và lịch sử chat.
 
@@ -305,3 +305,63 @@ python -m unittest discover -s tests
 ```
 
 Bao gồm đăng nhập đúng/sai/username không tồn tại/inactive; đăng xuất xóa dữ liệu riêng; buyer01 không đọc/sửa lead buyer02; buyer/seller bị chặn quản trị; seller bị chặn loại yêu cầu buyer; chữ ký identity giả bị từ chối; thay role/khóa account/đổi mật khẩu có hiệu lực với phiên cũ; seed lặp lại không đổi hash/role/active; username unique; leads cũ vẫn không chủ; commit/rollback và migration SQLite bước 3. AppTest kiểm tra màn hình login, lỗi login, login thành công, logout và form giữ dữ liệu khi lưu lỗi. Catalog/search/retrieval/crawlers/vectorization vẫn có tests hồi quy cũ.
+
+## Hồ sơ nhà cung cấp và sản phẩm cung ứng
+
+Phần này kế thừa `business.users`, Argon2id, session và phân quyền của bước 4; không tạo hệ thống tài khoản mới. Không có AGENTS.md trong repository/các thư mục cha đã kiểm tra. Tài khoản, leads và nhà cung cấp dùng cùng PostgreSQL; catalog và embeddings vẫn ở DuckDB. Không suy ra nhà cung cấp từ brand hoặc dữ liệu crawler.
+
+### Chuẩn bị thủ công
+
+Chưa chạy migration 004 hoặc seed nhà cung cấp trên Supabase thật. Bạn cần cài requirements, giữ DATABASE_URL Session pooler và LEADS_BACKEND=postgres, rồi chủ động chạy:
+
+```powershell
+python -m data.postgres --init-schema
+# Chỉ chạy nếu chưa có tài khoản demo; nhập mật khẩu tại prompt ẩn:
+python -m data.accounts seed
+# Catalog phải có ít nhất hai sản phẩm; không ghi DuckDB khi seed:
+python -m data.seed_suppliers
+python -m streamlit run src/app.py
+```
+
+Migration `004_suppliers.sql` thêm `business.suppliers`, `business.supplier_members`, `business.supplier_products`; không đổi mật khẩu/roles hoặc sửa leads cũ. Migrations 001–003 giữ nguyên checksum. Role DB của ứng dụng cần SELECT/INSERT/UPDATE trên suppliers và supplier_products, SELECT/INSERT trên supplier_members, quyền sequence mới, cùng quyền users hiện có cho admin duyệt và chuyển buyer thành seller. Dùng tài khoản DDL riêng cho migration, không expose schema business qua Supabase Data API.
+
+Suppliers lưu tên, loại đơn vị, mô tả, tỉnh/thành, email/điện thoại, vùng giao hàng, trạng thái, người tạo/người duyệt/thời điểm duyệt và lý do từ chối/tạm ngưng. Chỉ tên là bắt buộc; thông tin chưa biết giữ chuỗi rỗng (minimum_order giữ NULL) và giao diện hiện “Chưa cập nhật”. Không điền thông tin liên hệ, địa chỉ hay năng lực giả vào chỗ chưa biết.
+
+Membership unique theo supplier_id + user_id; sản phẩm unique theo supplier_id + source + product_id. PostgreSQL chỉ FK tới suppliers/users trong cùng database, không FK sang DuckDB. Source được strip/uppercase, product_id là chuỗi giữ số 0 đầu. Hàm thêm/cập nhật cung ứng kiểm tra khóa hiện có trong catalog ở thời điểm thao tác. Không có transaction phân tán giữa DuckDB và PostgreSQL; nếu catalog thay đổi sau kiểm tra, liên kết vẫn là lịch sử và được kiểm tra lại khi hiển thị/cập nhật.
+
+### Luồng đăng ký và quyền thao tác
+
+1. Buyer hoặc seller vào **Nhà cung cấp → Đăng ký đơn vị mới**, nhập hồ sơ. Server tạo trạng thái pending, gắn người tạo và membership trong cùng transaction; form không nhận role, trạng thái hay user_id tùy chọn.
+2. Người gửi xem hồ sơ/trạng thái của đơn vị mình. Có thể sửa hồ sơ pending/rejected. Hồ sơ rejected có hai thao tác lưu sửa hoặc **Gửi duyệt lại**; gửi lại chỉ chuyển rejected → pending, xóa quyết định cũ đang hiển thị, không tự approved.
+3. Admin vào **Duyệt nhà cung cấp**, mặc định xem pending; có thể lọc mọi trạng thái, xem chi tiết và sản phẩm. Admin duyệt pending/rejected/suspended → approved, từ chối pending → rejected hoặc tạm ngưng approved → suspended. Từ chối và tạm ngưng cần lý do. Người duyệt và thời điểm là quyết định gần nhất; đây chưa phải nhật ký audit đầy đủ.
+4. Chỉ thao tác duyệt của admin chuyển thành viên đang là buyer thành seller. Người dùng không tự nâng role, không tự thêm membership vào đơn vị khác và không thể sửa các trường kiểm duyệt qua hàm sửa hồ sơ. Tạm ngưng không hạ role; mỗi lần thao tác vẫn kiểm tra đúng supplier được chọn.
+5. Seller quản lý hồ sơ approved và danh sách cung ứng của đơn vị mình. Cần đồng thời account active, role seller, membership hợp lệ và supplier approved cho thêm/cập nhật/ngừng cung ứng. Có role seller nhưng chưa thuộc đơn vị approved thì không được bán. Một tài khoản có thể thuộc nhiều đơn vị; ngưng A không chặn B còn approved. Suspended không được sửa hồ sơ hoặc thao tác cung ứng, nhưng thành viên vẫn xem lịch sử và lý do.
+
+Quyền được kiểm tra trong `data/suppliers.py` với account đọc lại từ PostgreSQL, membership và khóa supplier trong cùng transaction, không chỉ dựa vào menu. Buyer/seller không gọi được danh sách quản trị hoặc hàm review. Admin xem và duyệt; không ghi cung ứng thay seller qua API người bán. Mọi kết quả thành công chỉ trả sau commit. Giao diện giữ form khi validation/database lỗi.
+
+Biểu mẫu leads cũ tiếp tục dành cho nhu cầu mua của buyer. Đường đăng ký seller ở trang kết nối nay dẫn sang hồ sơ nhà cung cấp; không tạo thêm leads làm đăng ký đơn vị. Seller leads cũ vẫn thuộc lịch sử cá nhân của tài khoản, không cấp membership hoặc quyền cung ứng. Không tự chuyển leads cũ thành suppliers.
+
+### Sản phẩm và lịch sử
+
+Chọn sản phẩm theo cặp source + product_id. Có thể nhập số lượng đặt tối thiểu dương (số thập phân dùng dấu chấm), đơn vị tính, thời gian chuẩn bị, năng lực dạng mô tả và bật/tắt đang cung ứng. Lưu lại cùng khóa cập nhật liên kết hiện có, không tạo trùng. Không có chức năng xóa vật lý liên kết.
+
+Sản phẩm đã bị xóa khỏi catalog vẫn giữ đủ thông tin cung ứng và khóa lịch sử, hiển thị **Sản phẩm không còn trong catalog**. Không cho tạo/bật lại/cập nhật thông tin cung ứng cho khóa thiếu; seller của đơn vị approved vẫn có thể chọn **Ngừng cung ứng liên kết hiện có**. Danh mục rỗng không còn chặn đăng nhập, trang hồ sơ, quản trị hoặc lịch sử. Tìm kiếm/catalog/RAG chỉ chạy khi catalog sẵn sàng và không bị thay đổi thuật toán.
+
+### Seed mô phỏng và kiểm tra demo
+
+`python -m data.seed_suppliers` yêu cầu seller01/seller02 active có role seller, admin01 active có role admin, và ít nhất hai khóa sản phẩm thực sự trong DuckDB. Thiếu điều kiện sẽ báo rõ và không ghi một phần. Lệnh không tự tạo tài khoản, không đổi mật khẩu và không tự chạy khi app khởi động.
+
+Lần đầu tạo **Đơn vị A (Mô phỏng)** cho seller01, **Đơn vị B (Mô phỏng)** cho seller02, mỗi đơn vị liên kết một trong hai sản phẩm đầu tiên theo thứ tự source/product_id. Hai hồ sơ mẫu approved và gắn cờ/description dữ liệu mô phỏng; đây không phải chứng nhận cung ứng thật. Thông tin liên hệ/tỉnh/đơn vị tính/số lượng chưa biết để trống. `demo_key` duy nhất định danh mẫu ổn định; chạy lại bỏ qua toàn bộ đơn vị đã tạo (bao gồm membership/sản phẩm), không reset status hoặc ghi đè dữ liệu đã sửa. Nếu operator xóa/chỉnh liên kết, seed không tự phục hồi để tránh ghi đè chủ ý.
+
+Kịch bản kiểm tra: buyer01 gửi hồ sơ → admin01 từ chối có lý do → buyer01 sửa/gửi lại → admin01 duyệt → tài khoản được đọc lại thành seller và quản lý cung ứng. Thử seller01 truy cập/sửa đơn vị B phải bị chặn; tạm ngưng A rồi thử ghi cung ứng A phải bị chặn; B vẫn hoạt động nếu tài khoản là thành viên. Xóa sản phẩm trên bản catalog test rồi kiểm tra lịch sử, không xóa dữ liệu catalog thật để demo.
+
+Kiểm thử tự động dùng TEST_DATABASE_URL local `ocop_leads_test` riêng, dữ liệu/tài khoản giả và DuckDB tạm. Không dùng DATABASE_URL thật cho tests. Docker trong hướng dẫn test chỉ là database test tùy chọn, không phải thành phần triển khai Supabase:
+
+```powershell
+# TEST_DATABASE_URL đã trỏ tới PostgreSQL test riêng theo hướng dẫn phía trên.
+python -m unittest discover -s tests -p test_suppliers.py -v
+python -m unittest discover -s tests -p test_supplier_ui.py -v
+python -m unittest discover -s tests
+```
+
+Tests bao gồm buyer không tự duyệt/nâng quyền; membership/role/status/inactive; seller01 bị chặn đọc quản trị và sửa B; luồng rejected → pending → approved; suspended và nhiều đơn vị; khóa source+product_id; dữ liệu thiếu và lịch sử catalog rỗng; seed lặp lại không trùng/không ghi đè; thiếu account/catalog không ghi sai; UI đăng ký/duyệt/lịch sử; cùng các tests hồi quy leads, đăng nhập, catalog, RAG, crawler và pipeline cũ.

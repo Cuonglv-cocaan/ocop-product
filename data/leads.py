@@ -31,6 +31,8 @@ def _operation():
 def save_lead(kind, name, email, phone, note, *, session=None):
     with _operation() as connection:
         actor = auth.require_user(connection, session, {'buyer', 'seller'})
+        if actor['role'] == 'seller':
+            raise auth.AccessDenied('Đăng ký nhà cung cấp qua hồ sơ đơn vị; không tạo đăng ký mới trong leads.')
         if kind != KINDS[actor['role']]:
             raise auth.AccessDenied('Loại yêu cầu không thuộc vai trò của bạn.')
         values = tuple(value.strip() for value in (name, email, phone, note))
