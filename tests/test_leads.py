@@ -54,8 +54,21 @@ class LeadTests(unittest.TestCase):
 
     def test_missing_url_and_invalid_backend_do_not_connect(self):
         for config in ({'LEADS_BACKEND': 'postgres', 'DATABASE_URL': ''},
+                       {'LEADS_BACKEND': '', 'DATABASE_URL': ''},
                        {'LEADS_BACKEND': 'typo', 'DATABASE_URL': ''}):
             with self.subTest(config=config), patch.dict(os.environ, config), patch('psycopg.connect') as connect:
                 with self.assertRaises(leads.LeadStorageError):
                     leads.save_lead('buyer', 'Name', 'a@b.co', '0', 'Note')
                 connect.assert_not_called()
+
+    def test_commit_failure_does_not_return_success(self):
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.execute.return_value.fetchone.return_value = (42,)
+        connection.__exit__.side_effect = psycopg.OperationalError('commit failed')
+        with patch.dict(os.environ, {'LEADS_BACKEND': 'postgres', 'DATABASE_URL': 'test'}), \
+                patch('psycopg.connect', return_value=connection), \
+                patch.object(sqlite_leads, 'save_lead', side_effect=AssertionError('No fallback')):
+            with self.assertRaises(leads.LeadStorageError):
+                leads.save_lead('buyer', 'Name', 'a@b.co', '0', 'Note')
+        connection.close.assert_called_once()

@@ -18,7 +18,7 @@ crawlers/tiktok/urls_tiktok.txt
   -> src/app.py
 ```
 
-Sản phẩm và embeddings lưu trong DuckDB (`data/ocop.duckdb`); yêu cầu liên hệ lưu riêng trong SQLite (`data/leads.sqlite3`). CSV crawler chỉ là dữ liệu đầu vào, ứng dụng đọc trực tiếp bảng `products`.
+Sản phẩm và embeddings lưu trong DuckDB (`data/ocop.duckdb`); yêu cầu liên hệ lưu riêng trong PostgreSQL/Supabase khi chọn `LEADS_BACKEND=postgres`, hoặc SQLite cho local khi chọn `LEADS_BACKEND=sqlite`. CSV crawler chỉ là dữ liệu đầu vào, ứng dụng đọc trực tiếp bảng `products`.
 
 ## Cài đặt và chạy
 
@@ -86,7 +86,7 @@ Các cột lưu dưới dạng VARCHAR để giữ ID có số 0 đầu và tư�
 
 Module database đọc `.env` ở gốc dự án. `DUCKDB_PATH=data/ocop.duckdb` tính từ gốc dự án, không phụ thuộc thư mục chạy lệnh. Biến môi trường hệ thống được ưu tiên hơn `.env`. Ứng dụng đọc lại database mỗi lần Streamlit chạy lại.
 
-Biểu mẫu lưu bảng `leads` trong SQLite, chưa tự gửi email. Đường dẫn cấu hình bằng `SQLITE_LEADS_PATH`. Chuyển leads từ DuckDB cũ sang SQLite:
+Biểu mẫu gọi `data.leads.save_lead()`, chưa tự gửi email. Backend bắt buộc khai báo bằng `LEADS_BACKEND`. SQLite local dùng đường dẫn `SQLITE_LEADS_PATH`; PostgreSQL dùng `DATABASE_URL` và bảng `business.leads`. Lệnh legacy chuyển leads từ DuckDB cũ sang SQLite vẫn được giữ:
 
 ```powershell
 python data/database.py --migrate-duckdb-leads data/ocop.duckdb
@@ -144,11 +144,13 @@ Cấu hình trong phần Secrets của Community Cloud:
 DUCKDB_PATH = "data/catalog.duckdb"
 DUCKDB_READ_ONLY = "true"
 SQLITE_LEADS_PATH = "data/leads.sqlite3"
+LEADS_BACKEND = "postgres"
+DATABASE_URL = "postgresql://USER:PASSWORD@POOLER_HOST:5432/postgres?sslmode=require"
 GEMINI_API_KEY = "your-api-key"
 GEMINI_MODEL = "gemini-3.5-flash-lite"
 ```
 
-Ứng dụng chỉ đọc DuckDB và ghi leads vào SQLite độc lập. Không chạy pipeline/vectorization ở chế độ DUCKDB_READ_ONLY=true. Cloud không tự truy cập file trên máy cá nhân; cần đưa catalog lên môi trường triển khai.
+Ứng dụng chỉ đọc DuckDB và ghi leads vào backend đã chọn. Với PostgreSQL, chạy schema migration trước khi triển khai. Không chạy pipeline/vectorization ở chế độ DUCKDB_READ_ONLY=true. Cloud không tự truy cập file trên máy cá nhân; cần đưa catalog lên môi trường triển khai.
 
 SQLite cục bộ trên Community Cloud không được bảo đảm lưu trữ lâu dài: dữ liệu có thể mất khi khởi động lại/triển khai lại. Nếu leads cần lưu bền vững, cần cơ chế sao lưu ngoài hoặc dịch vụ database bền vững. Xem https://docs.streamlit.io/develop/concepts/connections/connecting-to-data.
 
@@ -165,7 +167,7 @@ Phiên bản khảo sát: commit `6d35690` (Update UIUX). Không có AGENTS.md t
 Các điểm truy cập leads đã rà soát:
 
 - `src/app.py::connect()` là luồng ghi từ biểu mẫu cung cầu, gọi `data/leads.py::save_lead()`. Giao diện giữ nội dung khi lưu lỗi và không hiển thị lỗi driver chứa thông tin kết nối.
-- `data/leads.py` chọn backend rõ ràng qua `LEADS_BACKEND=sqlite|postgres`; mặc định SQLite. Chỉ đặt DATABASE_URL không đổi nơi ghi. PostgreSQL lỗi không tự ghi dự phòng vào SQLite.
+- `data/leads.py` yêu cầu chọn backend rõ ràng qua `LEADS_BACKEND=sqlite|postgres`. Thiếu/sai backend sẽ báo lỗi lưu; chỉ đặt DATABASE_URL không đổi nơi ghi. PostgreSQL lỗi không tự ghi dự phòng vào SQLite.
 - `data/sqlite_leads.py` quản lý kết nối, tạo/nâng cấp bảng SQLite và ghi leads. `data/database.py` giữ alias API cũ để tương thích.
 - `data/database.py::migrate_duckdb_leads()` đọc bảng leads DuckDB cũ bằng kết nối chỉ đọc, kiểm tra `legacy_duckdb_id` rồi ghi SQLite. Đây vẫn là lệnh legacy, không ghi PostgreSQL và không được chạy trong thay đổi này.
 - `tests/test_database_schema.py` đọc SQLite để kiểm tra và tạo leads DuckDB giả trong thư mục tạm; `tests/test_leads.py` kiểm tra chọn backend, secrets, tham số SQL và xử lý lỗi. Không có luồng đọc leads trong UI, RAG, crawler hay pipeline. Export catalog chỉ sao chép products và embeddings.
@@ -184,7 +186,7 @@ $env:LEADS_BACKEND = 'postgres'
 python -m streamlit run src/app.py
 ```
 
-Chỉ lệnh `--init-schema` tạo schema/bảng rỗng, không sao chép dữ liệu. Các lệnh trên là hướng dẫn để chạy riêng, chưa được thực thi trên database thật. Gửi một yêu cầu thử và kiểm tra `SELECT * FROM business.leads` trong database thử nghiệm. Khi dừng thử nghiệm, bỏ biến LEADS_BACKEND hoặc đặt lại `sqlite`. Không ghi dữ liệu thử vào database production.
+Chỉ lệnh `--init-schema` chạy migration schema, không sao chép dữ liệu. Gửi một yêu cầu thử và kiểm tra `SELECT * FROM business.leads` trong database thử nghiệm. Khi dừng thử nghiệm, đặt LEADS_BACKEND=`sqlite` rõ ràng để chạy local. Không ghi dữ liệu thử vào database production.
 
 Supabase: lấy PostgreSQL URI từ Dashboard > Connect, không dùng REST URL hoặc anon key. Dùng session pooler hoặc transaction pooler phù hợp mạng triển khai, thêm `sslmode=require` và URL-encode mật khẩu. Lưu URI vào DATABASE_URL ở Secrets hoặc môi trường; không commit URI thật. Ví dụ Secrets (giá trị minh họa):
 
@@ -195,17 +197,57 @@ DUCKDB_PATH = "data/catalog.duckdb"
 DUCKDB_READ_ONLY = "true"
 ```
 
-Schema nghiệp vụ trong `data/init_business_db.sql` nằm ở `business`, tách khỏi `public`; không thêm schema này vào Supabase exposed schemas. Không cấp quyền truy cập leads cho anon/authenticated. Hiện kết nối chỉ từ backend bằng tài khoản DB; production nên tạo role ứng dụng riêng có USAGE schema, INSERT/SELECT cần thiết và quyền sequence, dùng role quản trị riêng cho DDL. Chưa có đăng nhập, bảng users hoặc chính sách truy cập theo người dùng.
+Schema nghiệp vụ trong `data/migrations/` nằm ở `business`, tách khỏi `public`; không thêm schema này vào Supabase exposed schemas. Không cấp quyền truy cập leads cho anon/authenticated. Hiện kết nối chỉ từ backend bằng tài khoản DB; production nên tạo role ứng dụng riêng có USAGE schema, INSERT/SELECT cần thiết và quyền sequence, dùng role quản trị riêng cho DDL. Chưa có đăng nhập, bảng users hoặc chính sách truy cập theo người dùng.
 
 Tham khảo: [Psycopg transaction context](https://www.psycopg.org/psycopg3/docs/basic/transactions.html), [Supabase connections](https://supabase.com/docs/guides/database/connecting-to-postgres).
 
-### Kế hoạch migration (chưa thực hiện)
+### Quy trình migration
 
 1. Kiểm kê và sao lưu SQLite cùng các DuckDB legacy chứa leads; xác định nguồn chuẩn, ID trùng, múi giờ và dữ liệu thiếu. Không đưa bản sao chứa thông tin cá nhân vào Git.
 2. Khởi tạo schema PostgreSQL ở môi trường staging, chốt mô hình users/Auth và quyền truy cập trước khi triển khai đăng nhập. Bảng leads hiện độc lập với users.
-3. Viết công cụ import riêng có dry-run và transaction; bảo toàn created_at (chuẩn hóa UTC), ID nguồn vào `legacy_sqlite_id`/`legacy_duckdb_id`, chống trùng khi chạy lại. Nếu nhiều file SQLite có ID trùng, bổ sung định danh nguồn trước khi import. Không gộp theo email vì một người có thể gửi nhiều nhu cầu.
+3. Dùng công cụ import bên dưới với dry-run và transaction; bảo toàn created_at (chuẩn hóa UTC), ID nguồn vào `legacy_sqlite_id`/`legacy_duckdb_id`, chống trùng theo `source-id` và ID SQLite. Không gộp theo email vì một người có thể gửi nhiều nhu cầu.
 4. Tạm dừng ghi leads, sao lưu cuối, nhập dữ liệu staging rồi đối chiếu tổng số, nội dung, timestamp và khóa nguồn. Nếu giữ ID chính, điều chỉnh identity sequence. Thử rollback và import lại trước production.
 5. Khi đã xác nhận dữ liệu và quyền, nhập production rồi đặt LEADS_BACKEND=postgres và DATABASE_URL trong Secrets; thử biểu mẫu, restart và kiểm tra dữ liệu bền vững. Không cần chuyển catalog/embeddings.
 6. Giữ SQLite gốc để đối soát. Nếu phải quay lại SQLite sau khi PostgreSQL đã nhận lead mới, dừng ghi và xuất/đối soát phần phát sinh trước khi đổi backend để tránh thất lạc. Không xóa dữ liệu gốc trong giai đoạn chuẩn bị.
 
-Kiểm tra không cần database thật: `python -m unittest discover -s tests`. Tests PostgreSQL dùng mock driver, xác nhận context transaction và lỗi, chưa thay thế kiểm tra tích hợp commit/rollback với PostgreSQL/Supabase thật.
+Kiểm tra không cần database: `python -m unittest discover -s tests` (bỏ qua tests tích hợp nếu không có TEST_DATABASE_URL). Hướng dẫn PostgreSQL test riêng ở bên dưới.
+
+### Migration SQL có phiên bản
+
+Chạy tường minh `python -m data.postgres --init-schema` bằng tài khoản DDL. Runner áp dụng `001_create_leads.sql`, `002_sqlite_source_identity.sql` theo thứ tự trong một transaction, dùng advisory lock ngăn hai runner chạy đồng thời, lưu phiên bản và SHA-256 vào `business.schema_migrations`. Chạy lại không áp dụng lại; sửa file đã áp dụng sẽ gây lỗi và rollback. Thêm file phiên bản mới khi đổi schema, không sửa migration đã chạy. Không tự chạy schema migration khi khởi động app hoặc gửi form.
+
+Schema đã tạo bằng bước chuẩn bị cũ được tiếp nhận bởi migration 001, sau đó nâng cấp bởi 002. ID SQLite đã có được gán namespace `legacy-default`; nếu đây là nguồn đã import trước đó, tiếp tục dùng `--source-id legacy-default`. Schema khác với bản chuẩn cần đối chiếu trước khi áp dụng.
+
+### Import SQLite → PostgreSQL / Supabase
+
+Chỉ chạy import thật khi đã có yêu cầu thực hiện trên database đích. Trước khi thao tác production, dừng ghi leads, sao lưu SQLite và đặt DATABASE_URL tới đúng đích bằng secrets/môi trường. Lệnh không phụ thuộc LEADS_BACKEND và không tự áp dụng DDL; chạy schema migration trước.
+
+```powershell
+# DATABASE_URL đã được cấu hình; không đặt URI thật vào Git hoặc lịch sử lệnh chia sẻ.
+python -m data.postgres --init-schema
+python -m data.migrate_leads --source data/leads.sqlite3 --source-id local-main --dry-run
+python -m data.migrate_leads --source data/leads.sqlite3 --source-id local-main --apply
+# Chạy lại cùng source-id: các dòng giống hệt được skipped, không tạo trùng.
+python -m data.migrate_leads --source data/leads.sqlite3 --source-id local-main --apply
+```
+
+Chọn `source-id` ổn định cho từng nguồn SQLite, dùng lại ngay cả khi đổi tên/di chuyển file. Không đổi source-id để thử lại cùng nguồn vì sẽ tạo namespace mới. Khóa duy nhất `(legacy_sqlite_source, legacy_sqlite_id)` chống nhập trùng kể cả khi import đồng thời. PostgreSQL cấp ID chính mới; ID SQLite được giữ ở cột legacy nên không cần reset sequence. `legacy_duckdb_id` được bảo toàn nếu cột tồn tại; trùng ID DuckDB từ nguồn khác sẽ báo failed để đối soát.
+
+Nguồn được mở bằng SQLite URI `mode=ro`, query-only và snapshot đọc; không ALTER/UPDATE/xóa/đánh dấu dòng nguồn. Chuỗi kind/name/email/phone/note được giữ nguyên. created_at phải có timezone, được chuẩn hóa UTC; thời gian thiếu múi giờ hoặc dữ liệu không hợp lệ báo failed để sửa trên bản sao và đối soát. Không tự suy đoán múi giờ hay cắt nội dung.
+
+Dry-run chỉ SELECT trên PostgreSQL trong transaction read-only: không ghi bảng hoặc tăng sequence, báo would_insert/skipped/failed dựa trên kiểm tra dữ liệu và đối chiếu đích. Đây là dự báo, không thực thi INSERT nên không xác nhận toàn bộ constraint/trigger/quyền INSERT; dữ liệu đích có thể đổi sau preview.
+
+Apply dùng một transaction ngoài và savepoint mỗi dòng: dòng lỗi validation/constraint được failed, các dòng hợp lệ vẫn commit. Bản ghi trùng khóa nhưng khác nội dung là failed, không tự ghi đè. Sửa vấn đề và chạy lại cùng source-id. Lỗi kết nối/transaction/commit sẽ rollback toàn đợt, inserted=0 và failed=total. JSON trả `total`, `inserted` (đã commit), `skipped`, `failed`, `would_insert`, `dry_run`, `error`; exit code 0 khi không lỗi, 1 khi có failed/lỗi nguồn hoặc đích. Không in thông tin cá nhân hay URI kết nối. Nếu mất kết nối đúng lúc server commit, cần chạy lại cùng source-id để đối soát kết quả thay vì đổi nguồn.
+
+Sau khi đối soát, đặt `LEADS_BACKEND=postgres` và DATABASE_URL trong Secrets/môi trường rồi khởi động lại app. Form gọi API `save_lead()` cũ; thành công chỉ hiện sau commit. Nếu lỗi, form giữ nội dung để thử lại, không fallback SQLite. App chỉ cần quyền ghi/đọc cần thiết, không cần quyền chạy migration. Catalog DuckDB, tìm kiếm, RAG, crawler và pipeline giữ nguyên.
+
+### Kiểm thử PostgreSQL với dữ liệu giả
+
+```powershell
+docker run --name ocop-leads-test --rm -d -e POSTGRES_USER=ocop_test -e POSTGRES_PASSWORD=isolated-test-only -e POSTGRES_DB=ocop_leads_test -p 127.0.0.1:55439:5432 postgres:16
+$env:TEST_DATABASE_URL = 'postgresql://ocop_test:isolated-test-only@127.0.0.1:55439/ocop_leads_test'
+python -m unittest discover -s tests
+docker stop ocop-leads-test
+```
+
+Tests chỉ chấp nhận TEST_DATABASE_URL có host localhost/127.0.0.1 và database `ocop_leads_test`; không lấy DATABASE_URL thật làm đích test. Mỗi test tái tạo và dọn schema business trên database test này: tuyệt đối không đặt dữ liệu thật vào đó. SQLite fixtures nằm trong thư mục tạm. Bao gồm lưu lead thấy được từ kết nối mới, rollback sau INSERT và lỗi commit bằng deferred trigger, đóng kết nối khi commit lỗi, migration schema lặp lại, dry-run không ghi, import hai lần không trùng, xung đột nội dung, lỗi từng dòng và báo cáo CLI. AppTest kiểm tra form giữ giá trị khi lỗi và gửi lại thành công.

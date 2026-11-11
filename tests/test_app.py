@@ -9,6 +9,29 @@ from data.database import COLUMNS
 
 
 class AppTests(unittest.TestCase):
+    def test_lead_form_preserves_values_on_error_and_can_retry(self):
+        from data.leads import LeadStorageError
+        row = dict.fromkeys(COLUMNS, '')
+        row.update(source='TIKI', product_id='test', product_name='Test tea')
+        with patch('data.database.read_products', return_value=pd.DataFrame([row])), \
+                patch('data.leads.save_lead', side_effect=[LeadStorageError('Failed'), 42]) as save:
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
+            app.session_state['page'] = 'Kết nối cung cầu'
+            app.run(timeout=20)
+            for widget, value in zip(app.text_input, ['Test buyer', 'test@example.com', '0123']):
+                widget.set_value(value)
+            app.text_area[0].set_value('Test request')
+            app.button[0].click().run()
+            self.assertFalse(app.exception)
+            self.assertTrue(app.error)
+            self.assertFalse(app.success)
+            self.assertEqual([w.value for w in app.text_input], ['Test buyer', 'test@example.com', '0123'])
+            self.assertEqual(app.text_area[0].value, 'Test request')
+            app.button[0].click().run()
+            self.assertFalse(app.exception)
+            self.assertIn('#42', app.success[0].value)
+            self.assertEqual(save.call_count, 2)
+
     def test_directory_refreshes_cached_discovery_without_key_prefix(self):
         row = dict.fromkeys(COLUMNS, '')
         row.update(source='TIKI', product_id='1', product_name='Tea')
