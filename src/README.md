@@ -35,3 +35,6 @@ Bước 4: đăng nhập nội bộ và yêu cầu có chủ sở hữu dùng Po
 
 
 Hồ sơ nhà cung cấp: migration 004, seed riêng bằng python -m data.seed_suppliers. Buyer/seller đăng ký tại Nhà cung cấp; admin duyệt tại Duyệt nhà cung cấp. Cung ứng cần role seller + membership + approved; xem README gốc để biết quy trình và test. Không tự chạy migration/seed trên Supabase thật.
+
+
+Luồng mua hàng: trang Nhu cầu, migration 005 và seed mô phỏng riêng python -m data.seed_purchase. Buyer tạo phiếu, admin phân supplier approved, seller báo giá theo membership, buyer chọn/xác nhận kết nối. Không thay leads cũ. Xem README gốc về quyền, liên hệ, số tiền, trạng thái và test. Không tự chạy migration/seed trên database thật.

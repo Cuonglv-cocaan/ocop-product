@@ -25,6 +25,7 @@ from data.leads import save_lead, LeadStorageError
 from data import auth
 from src import auth_ui
 from src import supplier_ui
+from src import purchase_ui
 from src import search as search_module
 
 # Streamlit can retain an imported module while rerunning the edited app.
@@ -234,8 +235,9 @@ def product_detail(p: dict):
         else:
             st.info("Sản phẩm demo chưa có liên kết mua hàng.")
         if st.button("Yêu cầu kết nối nhà cung cấp", key=f"ask_{p['source']}_{p['product_id']}", use_container_width=True):
-            st.session_state["request_product"] = p["product_name"]
-            st.session_state["page"] = "Kết nối cung cầu"
+            st.session_state['purchase_reference'] = {'source': p['source'], 'product_id': p['product_id'],
+                                                       'title': p['product_name'], 'category': p['category_name']}
+            st.session_state["page"] = "Nhu cầu"
             st.rerun()
 
 
@@ -506,7 +508,7 @@ with head_a:
         unsafe_allow_html=True,
     )
 with head_b:
-    pages = ["Trang chủ", "Sản phẩm OCOP", "Vùng miền", "Kết nối cung cầu"]
+    pages = ["Trang chủ", "Sản phẩm OCOP", "Vùng miền", "Kết nối cung cầu", "Nhu cầu"]
     if actor is None:
         pages.append('Đăng nhập')
     elif actor['role'] in ('buyer', 'seller'):
@@ -547,6 +549,8 @@ elif current_page == 'Nhà cung cấp':
     supplier_ui.page()
 elif current_page == 'Duyệt nhà cung cấp':
     supplier_ui.page(admin=True)
+elif current_page == 'Nhu cầu':
+    purchase_ui.page()
 else:
     connect()
 
