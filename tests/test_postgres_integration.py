@@ -13,7 +13,7 @@ from unittest.mock import patch
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
-from data import leads, migrate_leads, postgres
+from data import accounts, auth, leads, migrate_leads, postgres
 
 
 TEST_URL = os.environ.get('TEST_DATABASE_URL')
@@ -62,7 +62,11 @@ class PostgresIntegrationTests(unittest.TestCase):
                 DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION business.reject_commit()''')
 
     def test_save_commits_and_rollback_at_commit(self):
-        lead_id = leads.save_lead('buyer', ' Test ', 'a@example.com', '0', 'Note')
+        import secrets
+        password = secrets.token_urlsafe(16)
+        accounts.seed_accounts(password)
+        session = auth.authenticate('buyer01', password)
+        lead_id = leads.save_lead(leads.KINDS['buyer'], ' Test ', 'a@example.com', '0', 'Note', session=session)
         with postgres.transaction() as connection:
             self.assertEqual(connection.execute('SELECT name FROM business.leads WHERE id=%s', (lead_id,)).fetchone(), ('Test',))
         self.fail_at_commit()
@@ -75,7 +79,7 @@ class PostgresIntegrationTests(unittest.TestCase):
         with patch('data.sqlite_leads.save_lead', side_effect=AssertionError('No fallback')), \
                 patch('psycopg.connect', side_effect=capture_connection):
             with self.assertRaises(leads.LeadStorageError):
-                leads.save_lead('buyer', 'Rollback', 'a@example.com', '0', 'Note')
+                leads.save_lead(leads.KINDS['buyer'], 'Rollback', 'a@example.com', '0', 'Note', session=session)
         self.assertTrue(opened[0].closed)
         self.assertEqual(self.count(), 1)
 
@@ -163,11 +167,12 @@ class PostgresIntegrationTests(unittest.TestCase):
     def test_migrations_repeatable_and_upgrade_prepared_schema(self):
         postgres.initialize_schema()
         with postgres.transaction() as connection:
-            self.assertEqual(connection.execute('SELECT count(*) FROM business.schema_migrations').fetchone()[0], 2)
+            self.assertEqual(connection.execute('SELECT count(*) FROM business.schema_migrations').fetchone()[0], 3)
             connection.execute('DROP SCHEMA business CASCADE')
             connection.execute(Path('data/migrations/001_create_leads.sql').read_text(encoding='utf-8'))
             connection.execute("INSERT INTO business.leads(kind,name,email,phone,note,legacy_sqlite_id) VALUES ('b','old','e','0','n',8)")
         postgres.initialize_schema()
         with postgres.transaction() as connection:
             self.assertEqual(connection.execute('SELECT legacy_sqlite_source FROM business.leads').fetchone()[0], 'legacy-default')
+            self.assertEqual(connection.execute('SELECT name,note,user_id FROM business.leads').fetchone(), ('old', 'n', None))
 
