@@ -365,3 +365,83 @@ python -m unittest discover -s tests
 ```
 
 Tests bao gồm buyer không tự duyệt/nâng quyền; membership/role/status/inactive; seller01 bị chặn đọc quản trị và sửa B; luồng rejected → pending → approved; suspended và nhiều đơn vị; khóa source+product_id; dữ liệu thiếu và lịch sử catalog rỗng; seed lặp lại không trùng/không ghi đè; thiếu account/catalog không ghi sai; UI đăng ký/duyệt/lịch sử; cùng các tests hồi quy leads, đăng nhập, catalog, RAG, crawler và pipeline cũ.
+
+## Nhu cầu → phân công → báo giá → kết nối
+
+Migration `005_purchase_workflow.sql` thêm purchase_requests, request_matches, request_quotes và request_events trong schema business hiện tại. Dùng lại tài khoản nội bộ, session, supplier_members và kiểm duyệt suppliers; không tạo hệ thống đăng nhập khác. Không sửa/xóa/tự chuyển leads cũ: leads tự do có thể thiếu chủ sở hữu, số lượng và điều kiện nên vẫn ở trang liên hệ cũ với quyền xem hiện có.
+
+### Chuẩn bị và dữ liệu mô phỏng
+
+Chưa chạy migration 005 hoặc seed luồng mua hàng trên Supabase thật. Sau review, giữ DATABASE_URL và LEADS_BACKEND=postgres đã cấu hình rồi chủ động chạy bằng role DDL/operator:
+
+```powershell
+python -m data.postgres --init-schema
+# Chỉ khi cần tài khoản/đơn vị mô phỏng; không chạy tự động:
+python -m data.accounts seed
+python -m data.seed_suppliers
+# Tùy chọn: tạo duy nhất một nhu cầu OPEN mô phỏng cho buyer01:
+python -m data.seed_purchase
+python -m streamlit run src/app.py
+```
+
+Seed nhu cầu yêu cầu buyer01 active với role buyer; không tạo tài khoản, đổi role hoặc bỏ qua mật khẩu trong giao diện. Lệnh operator tạo phiếu có nhãn MÔ PHỎNG, email thuộc miền example.invalid, số lượng 10 hộp, ngân sách mẫu VND và hạn giao tính từ ngày chạy. Nếu có catalog, dùng khóa sản phẩm đầu tiên thực sự tồn tại; nếu catalog rỗng thì không có sản phẩm tham chiếu. demo_key duy nhất giúp chạy lại bỏ qua toàn bộ phiếu đã có, không đổi nội dung/status/deadline đã chỉnh. Seed không phân công, gửi báo giá, lựa chọn hoặc xác nhận connected thay người dùng. Hai đơn vị mẫu vẫn cần admin phân thủ công qua giao diện.
+
+Role DB của app cần SELECT/INSERT/UPDATE trên purchase_requests/request_matches/request_quotes, SELECT/INSERT trên request_events và quyền dùng các sequence mới, cùng quyền supplier/users đã có. Không cấp sửa/xóa request_events cho role ứng dụng; dùng role DDL/operator riêng, không expose schema business qua Supabase Data API.
+
+### Phiếu nhu cầu và đơn vị tiền
+
+Trang **Nhu cầu** có giao diện theo role. Buyer tạo phiếu với tiêu đề, danh mục, mô tả, số lượng/đơn vị, ngân sách tùy chọn, budget_type per_unit/total, địa điểm và hạn giao, yêu cầu bổ sung. buyer_id luôn lấy từ session được kiểm tra lại từ DB, không có trường chọn buyer hoặc status trong form. Sản phẩm tham chiếu tùy chọn là source + product_id; nút Yêu cầu kết nối từ chi tiết catalog chuyển tới trang này và điền sẵn khóa, tiêu đề, danh mục. Khách đăng nhập xong giữ đúng phần tham chiếu công khai; không giữ lại dữ liệu riêng hoặc mật khẩu từ phiên trước.
+
+Quantity dùng NUMERIC(18,3) và Decimal, bắt buộc dương. Budget/unit_price/shipping_fee/total_amount dùng NUMERIC(18,2), không âm, chỉ tiền VND; API không nhận float hoặc số vượt precision. Đơn vị tính là chuỗi đã strip và báo giá phải dùng đúng đơn vị trên phiếu. Ngân sách dùng để so sánh, không tự cấm báo giá vượt ngân sách. Hạn giao là ngày tại múi giờ Asia/Bangkok, không được tạo/sửa về quá khứ. Không tự quy đổi đơn vị hoặc tiền tệ.
+
+Buyer sửa toàn bộ điều kiện chỉ khi phiếu còn open và chưa từng có request_match. Phân công đầu tiên khóa việc sửa, kể cả nếu nhà cung cấp sau đó từ chối. Muốn thay điều kiện: hủy phiếu và tạo nhu cầu mới. Không có xóa phân công hoặc mở lại phiếu đã đóng để lách khóa. Khóa request trong transaction ngăn sửa/phân công chạy chồng nhau.
+
+### Quyền và thông tin liên hệ
+
+Buyer chỉ xem/sửa/chọn/đóng nhu cầu của chính mình. Admin xem mọi phiếu, phân đơn vị approved, theo dõi và có thể hủy/đóng không tìm được phương án; không chọn báo giá hoặc xác nhận connected thay buyer. Seller chỉ thấy phiếu có phân công cho đơn vị mà mình là thành viên và vẫn approved; role seller riêng không đủ. Một phiếu phân nhiều đơn vị được, nhưng UNIQUE(request_id,supplier_id) ngăn trùng. Không có AI matching, thanh toán hoặc gửi email tự động.
+
+Phiếu có phần liên hệ riêng (tên/email/điện thoại) vì accounts hiện chỉ có username/password. Nhập ít nhất email hoặc điện thoại; đây là dữ liệu do buyer nhập cho phiếu, không suy ra từ leads hoặc email để gán chủ. Không đặt liên hệ vào mô tả/địa điểm/yêu cầu bổ sung. Server chặn việc chép nguyên email/điện thoại đã nhập vào các trường nội dung chia sẻ; không phải công cụ nhận diện mọi thông tin cá nhân trong văn bản tự do.
+
+API request_detail loại bỏ contact_name/contact_email/contact_phone và buyer_id khỏi dữ liệu trả cho seller trước lựa chọn. Seller cũng không nhận báo giá/lý do từ chối/lịch sử phản hồi của đơn vị khác. Buyer thấy các phương án nhưng chưa nhận email/điện thoại nhà cung cấp qua API này trước khi chọn. Admin cũng chưa thấy liên hệ buyer qua API luồng mua hàng trước lựa chọn. Buyer luôn đọc được liên hệ của chính mình.
+
+Sau selected/connected, chỉ đơn vị thắng được xem liên hệ buyer; buyer xem tên/email/điện thoại đơn vị đã chọn từ hồ sơ supplier. Đơn vị không được chọn không được mở liên hệ, kể cả đã từng gửi báo giá. Thông tin supplier còn thiếu hiện Chưa cập nhật; nhà cung cấp cập nhật tại hồ sơ của mình. Khi phiếu cancelled/closed_no_match, API không mở liên hệ cho các bên còn lại. Đây là lọc dữ liệu ở tầng server, không chỉ ẩn cột Streamlit. Không cache dữ liệu riêng; logout vẫn xóa session state.
+
+### Phiên bản báo giá và lựa chọn
+
+Seller chọn một phân công thuộc đơn vị của mình để gửi báo giá hoặc báo không thể đáp ứng kèm lý do. Mỗi phản hồi đều có event, actor và thời điểm. Có thể gửi lại sau một lần từ chối nếu phiếu còn nhận phản hồi; lịch sử từ chối không bị xóa. Phiếu quoted có thể không còn báo giá active nếu tất cả đã từ chối; buyer/admin tự đóng closed_no_match, không tự chọn phương án.
+
+Báo giá gồm số lượng đáp ứng >0 và không vượt nhu cầu, đúng đơn vị, đơn giá, phí giao (để trống nếu chưa biết/chưa gồm), ngày giao dự kiến từ hôm nay đến hạn giao của phiếu, hiệu lực có múi giờ, ghi chú và chi phí chưa bao gồm. Chi phí chưa gồm phải ghi rõ hoặc ghi Không có; khi phí giao để trống server tự thêm chú thích phí giao chưa nằm trong tổng.
+
+Server tính tổng = round(quantity × unit_price + shipping_fee nếu có, 2), Decimal ROUND_HALF_UP; PostgreSQL CHECK kiểm tra lại công thức. Form không gửi total_amount. Chỉ tạo phiên bản mới, đánh dấu bản active cũ superseded, không sửa nội dung bản cũ. Báo giá đã chọn giữ nguyên; sau selected không nhận thêm báo giá hoặc từ chối.
+
+Buyer so sánh các phiên bản, số lượng, giá, tổng, phí chưa gồm, ngày giao và hiệu lực. Chỉ chọn bản active còn hiệu lực của đúng phiếu, supplier vẫn approved và phiếu chưa qua hạn giao. Các báo giá hết hạn hoặc đã thay thế vẫn đọc được như lịch sử nhưng không chọn được. Lựa chọn chạy dưới khóa FOR UPDATE của phiếu, cùng update quote/match/status và event trong một transaction; partial unique index bảo đảm tối đa một quote selected và một match selected cho mỗi phiếu. Hai thao tác chọn đồng thời chỉ một thành công; lỗi ghi event rollback toàn bộ thao tác.
+
+**Selected chỉ là lựa chọn để tiếp tục trao đổi, chưa phải đơn hàng hoặc bằng chứng giao dịch thành công.** Chỉ buyer chủ sở hữu bấm xác nhận đã kết nối để chuyển connected; connected xác nhận việc kết nối trao đổi, không xác nhận giao hàng/thanh toán.
+
+| Trạng thái hiện tại | Thao tác hợp lệ |
+| --- | --- |
+| open | Buyer sửa; admin phân → assigned; buyer/admin hủy hoặc đóng không có phương án |
+| assigned | Admin phân thêm; seller báo giá → quoted hoặc từ chối; buyer/admin hủy/đóng |
+| quoted | Admin phân thêm; seller gửi phiên bản mới/từ chối; buyer chọn → selected; buyer/admin hủy/đóng |
+| selected | Chỉ buyer sở hữu xác nhận → connected; buyer/admin có thể hủy; không thay lựa chọn |
+| connected, cancelled, closed_no_match | Chỉ xem lịch sử; không nhận sửa, phân công, phản hồi, báo giá hoặc lựa chọn mới |
+
+Không tự đóng khi hết ngày; khi đã quá hạn giao, API chặn phân công/báo giá/lựa chọn và cho buyer/admin hủy hoặc đóng theo quy tắc. Không có trạng thái tự mở lại. request_events lưu actor_id, thời gian, loại và nội dung, bao gồm tạo/sửa/phân/quote/từ chối/chọn/đóng; seller chỉ đọc event của phân công thuộc đơn vị mình. Trạng thái và lịch sử cập nhật cùng transaction.
+
+### Kịch bản demo và kiểm thử
+
+1. Buyer01 tạo nhu cầu (hoặc dùng phiếu mô phỏng open), xác nhận số lượng/đơn vị/địa điểm/hạn giao và liên hệ riêng. Buyer02 không đọc/sửa/chọn hộ phiếu này.
+2. Admin01 vào Nhu cầu, phân đơn vị A và B đã approved. Phân trùng bị chặn; lúc này buyer không sửa điều kiện được.
+3. Seller01 chỉ thấy phân công A, nhập báo giá cùng đơn vị tính; thử gửi lại để xem phiên bản cũ superseded. Seller02 có thể báo giá B hoặc từ chối có lý do. Hai seller chưa xem liên hệ buyer hoặc báo giá của nhau.
+4. Buyer01 so sánh và chọn đúng một báo giá còn hiệu lực, đọc cảnh báo chưa phải đơn hàng. Chỉ nhà cung cấp được chọn mở được liên hệ buyer.
+5. Buyer01 xác nhận đã kết nối để trao đổi. Sau connected mọi thao tác thay đổi nghiệp vụ bị chặn. Có thể dùng phiếu khác để thử hủy hoặc đóng không có phương án.
+
+Kiểm thử chỉ dùng TEST_DATABASE_URL local `ocop_leads_test`, không lấy DATABASE_URL thật. Các fixtures tạo users/suppliers/catalog và nhu cầu mô phỏng trong PostgreSQL/DuckDB test riêng. Tests concurrency dùng hai kết nối thật tới database test, không dùng mock để chứng minh một lựa chọn.
+
+```powershell
+python -m unittest discover -s tests -p test_purchase.py -v
+python -m unittest discover -s tests -p test_purchase_ui.py -v
+python -m unittest discover -s tests
+```
+
+Bao gồm luồng buyer → admin → seller → buyer → connected, quyền khác buyer/membership/approved, thiếu hoặc giả owner, thời gian/số tiền/float không hợp lệ, hết hạn, supplier suspended, giữ phiên bản, từ chối/gửi lại, đóng phiếu, double selection đồng thời, rollback quote/selection khi event lỗi, seed hai lần và UI cho buyer/admin/seller. Catalog, crawler, embeddings, RAG, leads cũ và schema 001–004 giữ nguyên.

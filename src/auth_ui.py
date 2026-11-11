@@ -18,9 +18,12 @@ def login():
         except (psycopg.Error, OSError, ValueError):
             st.error('Không thể đăng nhập lúc này. Vui lòng thử lại.')
         else:
+            reference = st.session_state.get('purchase_reference')
             auth.logout(st.session_state)
             st.session_state['auth_session'] = session
-            st.session_state['page'] = 'Trang chủ'
+            if isinstance(reference, dict):
+                st.session_state['purchase_reference'] = {key: reference.get(key, '') for key in ('source', 'product_id', 'title', 'category')}
+            st.session_state['page'] = 'Nhu cầu' if reference else 'Trang chủ'
             st.rerun()
 
 
