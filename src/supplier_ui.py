@@ -43,6 +43,13 @@ def _products(session, row, actor):
                            ('preparation_time', 'Thời gian chuẩn bị'), ('capacity_description', 'Năng lực cung ứng')):
             value = link[key]
             st.write(f"{label}: {value if value not in (None, '') else 'Chưa cập nhật'}")
+        st.caption('Danh mục khai báo: ' + (link.get('category') or 'Chưa cập nhật')
+                   + ' · Khu vực phục vụ: ' + (', '.join(link.get('service_regions', [])) or 'Chưa cập nhật'))
+        days = link.get('preparation_days')
+        price = link.get('reference_price')
+        st.caption('Ngày chuẩn bị khai báo: ' + ('Chưa cập nhật' if days is None else str(days))
+                   + ' · Giá tham khảo tự khai báo: '
+                   + ('Chưa cập nhật' if price is None else f"{price} VND / {link.get('reference_price_unit', '')}"))
     if not links:
         st.info('Chưa có sản phẩm cung ứng.')
     if actor['role'] != 'seller' or row['status'] != 'approved':
@@ -65,12 +72,24 @@ def _products(session, row, actor):
         unit = st.text_input('Đơn vị tính', value=current.get('unit', ''))
         preparation = st.text_input('Thời gian chuẩn bị', value=current.get('preparation_time', ''))
         capacity = st.text_area('Năng lực cung ứng', value=current.get('capacity_description', ''))
+        st.caption('Khai báo có cấu trúc phục vụ matching; không tự lấy từ mô tả hoặc catalog.')
+        category = st.text_input('Danh mục cung ứng khai báo', value=current.get('category', ''))
+        regions = st.text_area('Tỉnh/thành phục vụ (mỗi dòng một tỉnh/thành, ghi tên đầy đủ)',
+                               value='\n'.join(current.get('service_regions', [])))
+        days = st.text_input('Số ngày chuẩn bị (số nguyên, trống nếu chưa biết)',
+                             value='' if current.get('preparation_days') is None else str(current['preparation_days']))
+        price = st.text_input('Giá tham khảo tự khai báo (VND mỗi đơn vị, tùy chọn)',
+                              value='' if current.get('reference_price') is None else str(current['reference_price']))
+        price_unit = st.text_input('Đơn vị của giá tham khảo', value=current.get('reference_price_unit', ''))
+        st.caption('Giá tham khảo chưa xác nhận vận chuyển/thuế; khác giá catalog và báo giá thực tế theo yêu cầu.')
         active = st.checkbox('Đang cung ứng', value=current.get('is_active', True))
         submitted = st.form_submit_button('Lưu cung ứng')
         stop = st.form_submit_button('Ngừng cung ứng liên kết hiện có') if current else False
     if submitted:
         suppliers.save_product(session, row['id'], *key, minimum_order=quantity, unit=unit,
-                               preparation_time=preparation, capacity_description=capacity, is_active=active)
+                               preparation_time=preparation, capacity_description=capacity, is_active=active,
+                               structured=dict(category=category, service_regions=[r.strip() for r in regions.splitlines() if r.strip()],
+                                               preparation_days=days, reference_price=price, reference_price_unit=price_unit))
         _success('Đã lưu thông tin cung ứng.')
     if stop:
         suppliers.stop_product(session, row['id'], *key)

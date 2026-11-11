@@ -6,11 +6,11 @@ from zoneinfo import ZoneInfo
 from psycopg.rows import dict_row
 from . import auth, postgres, suppliers
 
-ZONE = ZoneInfo('Asia/Bangkok')
+ZONE = ZoneInfo('Asia/Ho_Chi_Minh')
 TERMINAL = {'connected', 'cancelled', 'closed_no_match'}
 REQUEST_FIELDS = ('title', 'category', 'description', 'quantity', 'unit', 'budget', 'budget_type',
                   'delivery_location', 'delivery_deadline', 'additional_requirements', 'source',
-                  'product_id', 'contact_name', 'contact_email', 'contact_phone')
+                  'product_id', 'contact_name', 'contact_email', 'contact_phone', 'delivery_region')
 CONTACT_FIELDS = ('contact_name', 'contact_email', 'contact_phone')
 
 
@@ -141,7 +141,7 @@ def edit_request(session, request_id, fields):
         _event(connection, request_id, actor, 'edited', 'Buyer cập nhật phiếu trước khi phân công.')
 
 
-def assign_supplier(session, request_id, supplier_id):
+def assign_supplier(session, request_id, supplier_id, *, use_matching=False):
     with postgres.transaction() as connection:
         actor = auth.require_user(connection, session, {'admin'})
         row = _request(connection, actor, request_id)
@@ -149,14 +149,28 @@ def assign_supplier(session, request_id, supplier_id):
         supplier = suppliers._supplier(connection, actor, supplier_id)
         if supplier['status'] != 'approved':
             raise ValueError('Chỉ phân đơn vị đã được duyệt.')
+        snapshot = None
+        if use_matching:
+            from . import matching
+            from psycopg.types.json import Jsonb
+            # Recompute on confirmation; never trust a client-provided score/snapshot.
+            candidate = next((c for c in matching.candidates_in_connection(connection, row, supplier_id)
+                              if c['supplier_id'] == supplier_id), None)
+            if not candidate or candidate['group'] == 'excluded':
+                raise ValueError('Ứng viên không còn hợp lệ. Kiểm tra lại điều kiện hoặc dùng phân thủ công.')
+            snapshot = Jsonb(candidate)
         result = connection.execute('''INSERT INTO business.request_matches(request_id,supplier_id,assigned_by)
             VALUES (%s,%s,%s) ON CONFLICT(request_id,supplier_id) DO NOTHING RETURNING id''',
             (request_id, supplier_id, actor['id'])).fetchone()
         if not result:
             raise ValueError('Đơn vị đã được phân cho phiếu này.')
+        if snapshot is not None:
+            connection.execute('''UPDATE business.request_matches SET rule_version=%s,matching_snapshot=%s
+                WHERE id=%s''', (matching.VERSION, snapshot, result[0]))
         connection.execute('''UPDATE business.purchase_requests SET status=CASE WHEN status='open' THEN 'assigned' ELSE status END,
             updated_at=CURRENT_TIMESTAMP WHERE id=%s''', (request_id,))
-        _event(connection, request_id, actor, 'assigned', 'Admin phân nhà cung cấp thủ công.', result[0])
+        _event(connection, request_id, actor, 'assigned',
+               'Admin xác nhận gợi ý theo quy tắc.' if use_matching else 'Admin phân nhà cung cấp thủ công.', result[0])
     return result[0]
 
 

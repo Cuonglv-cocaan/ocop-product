@@ -4,7 +4,7 @@ from datetime import datetime, time, timedelta
 import duckdb
 import psycopg
 import streamlit as st
-from data import auth, purchase, suppliers
+from data import auth, purchase, suppliers, matching
 from src import auth_ui
 
 STATES = {'open': 'Mới tạo', 'assigned': 'Đã phân nhà cung cấp', 'quoted': 'Đã có báo giá',
@@ -40,6 +40,7 @@ def request_form(row=None):
                                    index=0 if row.get('budget_type', 'total') == 'total' else 1,
                                    format_func=lambda v: 'Tổng ngân sách' if v == 'total' else 'Mỗi đơn vị')
         location = st.text_input('Địa điểm giao *', value=row.get('delivery_location', ''))
+        region = st.text_input('Tỉnh/thành giao hàng (matching, ghi tên đầy đủ)', value=row.get('delivery_region', ''))
         deadline = st.date_input('Hạn giao *', value=row.get('delivery_deadline', purchase.today() + timedelta(days=7)))
         additional = st.text_area('Yêu cầu bổ sung', value=row.get('additional_requirements', ''))
         selected = st.selectbox('Sản phẩm tham chiếu', options=list(choices), index=list(choices).index(initial),
@@ -54,7 +55,7 @@ def request_form(row=None):
                       budget=budget, budget_type=budget_type, delivery_location=location, delivery_deadline=deadline,
                       additional_requirements=additional, source=selected[0] if selected else '',
                       product_id=selected[1] if selected else '', contact_name=contact_name,
-                      contact_email=contact_email, contact_phone=contact_phone)
+                      contact_email=contact_email, contact_phone=contact_phone, delivery_region=region)
         session = st.session_state.get('auth_session')
         if row:
             purchase.edit_request(session, row['id'], fields)
@@ -73,7 +74,7 @@ def _quotes(detail, actor, session):
                        'Số lượng': str(q['quantity']), 'Đơn vị tính': q['unit'], 'Đơn giá VND': str(q['unit_price']),
                        'Phí giao VND': 'Chưa bao gồm' if q['shipping_fee'] is None else str(q['shipping_fee']),
                        'Tổng tiền VND': str(q['total_amount']), 'Giao dự kiến': q['expected_delivery'],
-                       'Hiệu lực đến': q['valid_until'], 'Trạng thái': QUOTE_STATES[q['status']],
+                       'Hiệu lực đến': q['valid_until'].astimezone(purchase.ZONE).isoformat(), 'Trạng thái': QUOTE_STATES[q['status']],
                        'Chi phí chưa gồm': q['excluded_costs'], 'Ghi chú': q['notes']} for q in quotes], hide_index=True)
     else:
         st.info('Chưa có báo giá.')
@@ -163,6 +164,7 @@ def page():
             with st.expander('Sửa nhu cầu trước khi phân công'):
                 request_form(row)
         if actor['role'] == 'admin' and row['status'] in ('open', 'assigned', 'quoted'):
+            _matching(session, row, detail['matches'])
             units = suppliers.list_suppliers(session, admin=True, status='approved')
             assigned = {m['supplier_id'] for m in detail['matches']}
             options = [s for s in units if s['id'] not in assigned]
@@ -178,7 +180,12 @@ def page():
             match_states = {'assigned': 'Đã phân, chờ phản hồi', 'quoted': 'Đã báo giá',
                             'declined': 'Không thể đáp ứng', 'selected': 'Đã được buyer chọn'}
             st.dataframe([{'Đơn vị': m['supplier_name'], 'Trạng thái': match_states[m['status']],
-                           'Thời điểm phân': m['assigned_at']} for m in detail['matches']], hide_index=True)
+                           'Thời điểm phân': m['assigned_at'].astimezone(purchase.ZONE).isoformat()} for m in detail['matches']], hide_index=True)
+            if actor['role'] == 'admin':
+                for match in detail['matches']:
+                    if match.get('matching_snapshot'):
+                        with st.expander(f"Snapshot lúc phân · {match['supplier_name']} · {match['rule_version']}"):
+                            st.json(match['matching_snapshot'])
         _quotes(detail, actor, session)
         if actor['role'] == 'seller':
             _seller_response(detail, session)
@@ -203,8 +210,49 @@ def page():
                 _done('Đã đóng phiếu không có phương án phù hợp.')
         st.subheader('Lịch sử xử lý')
         for event in detail['events']:
-            st.write(f"{event['created_at']} · #{event['actor_id']} · {event['content']}")
+            st.write(f"{event['created_at'].astimezone(purchase.ZONE).isoformat()} · #{event['actor_id']} · {event['content']}")
     except (auth.AccessDenied, ValueError) as error:
         st.error(str(error))
     except (psycopg.Error, duckdb.Error, OSError):
         st.error('Không thể xử lý nhu cầu lúc này. Nội dung form được giữ để thử lại.')
+
+
+def _matching(session, row, matches):
+    st.subheader('Gợi ý nhà cung cấp theo quy tắc')
+    st.caption('Điểm phù hợp theo quy tắc, không phải xác suất thành công. '
+               'Sản phẩm 40 · khu vực 20 · tối thiểu 15 · chuẩn bị 15 · ngân sách 10. '
+               'Khai báo nhà cung cấp chưa phải xác minh năng lực hoặc chứng nhận OCOP.')
+    # Running/viewing is read-only. No match is persisted until form confirmation.
+    if not st.checkbox('Hiển thị kết quả matching', key=f'matching_visible_{row["id"]}'):
+        return
+    candidates = matching.find_candidates(session, row['id'])
+    product_names = {(p['source'], p['product_id']): p['product_name'] for p in suppliers.catalog_items()}
+    labels = {'recommended': 'Đề xuất chính', 'confirmation': 'Cần xác nhận', 'excluded': 'Bị loại'}
+    states = {'met': 'Đáp ứng', 'failed': 'Không đáp ứng', 'unknown': 'Cần xác nhận', 'not_applicable': 'Không áp dụng'}
+    for group, label in labels.items():
+        with st.expander(label, expanded=group != 'excluded'):
+            items = [c for c in candidates if c['group'] == group]
+            if not items:
+                st.caption('Chưa có ứng viên trong nhóm này.')
+            for candidate in items:
+                st.write(f"{candidate['supplier_name']} · Điểm phù hợp theo quy tắc: {candidate['score']}/100")
+                if candidate['is_demo']:
+                    st.warning('Nhà cung cấp mô phỏng. Phân cho nhu cầu này sẽ đưa nhu cầu vào nhóm số liệu mô phỏng.')
+                for product in candidate['products'][:3]:
+                    name = product_names.get((product['source'], product['product_id']), 'Sản phẩm không còn trong catalog')
+                    st.write(f"{name} ({product['source']} · {product['product_id']}) · {product['category']} · {labels[product['group']]}")
+                    for criterion in product['criteria']:
+                        st.caption(f"{states[criterion['state']]}: {criterion['reason']} (+{criterion['points']})")
+    assigned = {m['supplier_id'] for m in matches}
+    options = [c for c in candidates if c['group'] != 'excluded' and c['supplier_id'] not in assigned]
+    if options:
+        with st.form(f'confirm_matching_{row["id"]}'):
+            choice = st.selectbox('Ứng viên muốn phân', options=options,
+                                  format_func=lambda c: f"{c['supplier_name']} · {labels[c['group']]} · {c['score']}")
+            confirmed = st.checkbox('Tôi đã kiểm tra điều kiện, bao gồm các thông tin cần xác nhận.')
+            submitted = st.form_submit_button('Xác nhận phân ứng viên')
+        if submitted:
+            if not confirmed:
+                raise ValueError('Cần xác nhận đã kiểm tra điều kiện trước khi phân.')
+            purchase.assign_supplier(session, row['id'], choice['supplier_id'], use_matching=True)
+            _done('Đã phân và lưu snapshot quy tắc. Chưa gửi thông báo ra ngoài.')

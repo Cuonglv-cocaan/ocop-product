@@ -129,7 +129,7 @@ def _product_key(source, product_id):
 
 
 def save_product(session, supplier_id, source, product_id, *, minimum_order=None, unit='',
-                 preparation_time='', capacity_description='', is_active=True):
+                 preparation_time='', capacity_description='', is_active=True, structured=None):
     source, product_id = _product_key(source, product_id)
     try:
         quantity = None if minimum_order in (None, '') else Decimal(str(minimum_order))
@@ -139,6 +139,7 @@ def save_product(session, supplier_id, source, product_id, *, minimum_order=None
         raise ValueError('Số lượng tối thiểu phải lớn hơn 0 hoặc để trống.')
     if not isinstance(is_active, bool):
         raise ValueError('Trạng thái cung ứng không hợp lệ.')
+    declarations = declaration_values(structured) if structured is not None else None
     with postgres.transaction() as connection:
         actor = auth.require_user(connection, session, {'seller'})
         _supplier(connection, actor, supplier_id, selling=True)
@@ -153,6 +154,34 @@ def save_product(session, supplier_id, source, product_id, *, minimum_order=None
             capacity_description=EXCLUDED.capacity_description,is_active=EXCLUDED.is_active,updated_at=CURRENT_TIMESTAMP''',
             (supplier_id, source, product_id, quantity, unit.strip(), preparation_time.strip(),
              capacity_description.strip(), is_active))
+        if declarations is not None:
+            connection.execute('''UPDATE business.supplier_products SET category=%s,service_regions=%s,
+                preparation_days=%s,reference_price=%s,reference_price_unit=%s
+                WHERE supplier_id=%s AND source=%s AND product_id=%s''',
+                (*declarations, supplier_id, source, product_id))
+
+
+def declaration_values(fields):
+    """Explicit structured declarations; no extraction from free text."""
+    allowed = {'category', 'service_regions', 'preparation_days', 'reference_price', 'reference_price_unit'}
+    if set(fields) - allowed:
+        raise ValueError('Trường khai báo không hợp lệ.')
+    regions = fields.get('service_regions', [])
+    if not isinstance(regions, list) or any(not isinstance(r, str) or not r.strip() for r in regions):
+        raise ValueError('Khu vực phục vụ cần danh sách tỉnh/thành, mỗi mục không rỗng.')
+    days = fields.get('preparation_days')
+    if days in (None, ''):
+        days = None
+    elif isinstance(days, bool) or not str(days).isascii() or not str(days).isdecimal() or int(days) > 36500:
+        raise ValueError('Số ngày chuẩn bị phải là số nguyên từ 0 đến 36500, hoặc để trống.')
+    else:
+        days = int(days)
+    from .purchase import number
+    price = number(fields.get('reference_price'), optional=True)
+    unit = str(fields.get('reference_price_unit') or '').strip()
+    if price is not None and not unit:
+        raise ValueError('Giá tham khảo cần đơn vị tính; chỉ VND mỗi đơn vị.')
+    return (str(fields.get('category') or '').strip(), sorted(set(r.strip() for r in regions)), days, price, unit)
 
 
 def stop_product(session, supplier_id, source, product_id):

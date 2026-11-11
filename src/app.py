@@ -26,6 +26,7 @@ from data import auth
 from src import auth_ui
 from src import supplier_ui
 from src import purchase_ui
+from src import dashboard_ui
 from src import search as search_module
 
 # Streamlit can retain an imported module while rerunning the edited app.
@@ -80,18 +81,18 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 .st-key-site_header [data-testid="stColumn"] {min-width:0;}
 .st-key-site_header [data-testid="stVerticalBlock"] {gap:0;justify-content:center;}
 .st-key-site_header .logo-link {display:flex;flex-direction:column;justify-content:center;width:fit-content;}
-.st-key-site_header [data-testid="stSegmentedControl"] {margin:0;}
-.st-key-site_header [data-testid="stSegmentedControl"] [data-baseweb="button-group"] {width:100%;display:flex;align-items:stretch;}
-.st-key-site_header [data-testid="stSegmentedControl"] button {flex:1 1 0;min-width:0;min-height:44px;padding:8px 12px;}
-.st-key-site_header [data-testid="stSegmentedControl"] button p {white-space:nowrap;font-size:13px;line-height:1.4;}
+.st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) {margin:0;min-width:0;max-width:100%;}
+.st-key-site_header :is([data-baseweb="button-group"], [data-testid="stButtonGroupFlex"]) {width:100%;display:flex;flex-wrap:wrap;align-items:stretch;gap:4px;}
+.st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button {flex:1 1 auto;min-width:0;max-width:100%;height:auto;min-height:44px;padding:8px 12px;}
+.st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button p {white-space:normal;overflow-wrap:anywhere;font-size:13px;line-height:1.4;}
 @media(max-width:900px){
     .st-key-site_header [data-testid="stHorizontalBlock"] {flex-wrap:wrap;gap:1rem;}
     .st-key-site_header [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}
     .st-key-site_header .logo-link {margin-inline:auto;text-align:center;}
 }
 @media(max-width:480px){
-    .st-key-site_header [data-testid="stSegmentedControl"] [data-baseweb="button-group"] {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
-    .st-key-site_header [data-testid="stSegmentedControl"] button {width:100%;}
+    .st-key-site_header :is([data-baseweb="button-group"], [data-testid="stButtonGroupFlex"]) {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
+    .st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button {width:100%;}
 }
 .hero {background:#F7F9F1;border:1px solid #eaf0e5;border-radius:22px;padding:40px 42px;min-height:290px;margin:12px 0 24px}
 .hero h1 {font-size:clamp(31px,4vw,50px);line-height:1.25;margin:13px 0;font-weight:800}
@@ -518,6 +519,7 @@ with head_b:
     if actor and actor['role'] == 'admin':
         pages.append('Quản trị')
         pages.append('Duyệt nhà cung cấp')
+        pages.append('Hiệu quả kết nối')
     if st.session_state['page'] not in pages:
         st.session_state['page'] = 'Trang chủ'
     st.session_state["navigation_page"] = st.session_state["page"]
@@ -551,6 +553,8 @@ elif current_page == 'Duyệt nhà cung cấp':
     supplier_ui.page(admin=True)
 elif current_page == 'Nhu cầu':
     purchase_ui.page()
+elif current_page == 'Hiệu quả kết nối':
+    dashboard_ui.page()
 else:
     connect()
 
