@@ -1,4 +1,5 @@
 import tempfile
+import os
 import sqlite3
 from contextlib import closing
 import unittest
@@ -38,6 +39,9 @@ class SchemaTests(unittest.TestCase):
             db.export_catalog(db.DUCKDB_PATH)
 
     def setUp(self):
+        backend = patch.dict(os.environ, {'LEADS_BACKEND': 'sqlite'})
+        backend.start()
+        self.addCleanup(backend.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         override = patch.object(db, "DUCKDB_PATH", Path(self.temp.name) / "test.duckdb")

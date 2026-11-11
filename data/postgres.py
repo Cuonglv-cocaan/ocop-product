@@ -1,6 +1,7 @@
 """Lazy PostgreSQL connections, one transaction per context; no catalog imports."""
 import os
-from contextlib import contextmanager
+import hashlib
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,15 +28,37 @@ def transaction():
     if not url:
         raise ValueError('DATABASE_URL is required for PostgreSQL')
     import psycopg
-    with psycopg.connect(url, connect_timeout=10, prepare_threshold=None) as connection:
-        yield connection
+    # close() must also run if COMMIT itself raises.
+    with closing(psycopg.connect(url, connect_timeout=10, prepare_threshold=None)) as connection, connection:
+        # Nested transaction contexts must be savepoints from the first row.
+        with connection.transaction():
+            yield connection
 
 
 def initialize_schema():
-    """Explicit operator action; never run DDL during a form submission."""
-    sql = Path(__file__).with_name('init_business_db.sql').read_text(encoding='utf-8')
+    """Apply versioned SQL atomically, with locking and checksum validation."""
     with transaction() as connection:
-        connection.execute(sql)
+        connection.execute('SELECT pg_advisory_xact_lock(674091824)')
+        connection.execute('CREATE SCHEMA IF NOT EXISTS business')
+        connection.execute('''CREATE TABLE IF NOT EXISTS business.schema_migrations (
+            version TEXT PRIMARY KEY, checksum TEXT NOT NULL,
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+        for path in sorted(Path(__file__).with_name('migrations').glob('[0-9]*.sql')):
+            sql = path.read_text(encoding='utf-8')
+            checksum = hashlib.sha256(sql.encode('utf-8')).hexdigest()
+            previous = connection.execute(
+                'SELECT checksum FROM business.schema_migrations WHERE version=%s',
+                (path.name,),
+            ).fetchone()
+            if previous:
+                if previous[0] != checksum:
+                    raise ValueError(f'Applied migration changed: {path.name}')
+                continue
+            connection.execute(sql)
+            connection.execute(
+                'INSERT INTO business.schema_migrations(version,checksum) VALUES (%s,%s)',
+                (path.name, checksum),
+            )
 
 
 if __name__ == '__main__':
