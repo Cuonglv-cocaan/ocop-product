@@ -1,7 +1,7 @@
 """OCOP Connect — Streamlit demo portal.
 
 Run: streamlit run app.py
-Products: DuckDB; leads: SQLite.
+Products: DuckDB; leads: configurable business storage.
 """
 from __future__ import annotations
 
@@ -17,11 +17,11 @@ from urllib.parse import urlparse
 
 import pandas as pd
 import streamlit as st
-import sqlite3
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR.parent))
-from data.database import DUCKDB_PATH, read_products, save_lead
+from data.database import DUCKDB_PATH, read_products
+from data.leads import save_lead, LeadStorageError
 from src import search as search_module
 
 # Streamlit can retain an imported module while rerunning the edited app.
@@ -446,7 +446,7 @@ def connect():
             else:
                 try:
                     lead_id = save_lead(kind, name, email, phone, note)
-                except (sqlite3.Error, OSError):
+                except LeadStorageError:
                     st.error("Không thể lưu yêu cầu lúc này. Thông tin vẫn được giữ trong biểu mẫu, vui lòng thử lại.")
                 else:
                     st.success(f"Đã lưu yêu cầu của bạn. Mã yêu cầu: #{lead_id}.")

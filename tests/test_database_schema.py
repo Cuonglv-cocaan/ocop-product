@@ -9,6 +9,7 @@ import duckdb
 import pandas as pd
 
 from data import database as db
+from data import sqlite_leads
 
 
 class SchemaTests(unittest.TestCase):
@@ -40,7 +41,7 @@ class SchemaTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         override = patch.object(db, "DUCKDB_PATH", Path(self.temp.name) / "test.duckdb")
-        leads_override = patch.object(db, "SQLITE_LEADS_PATH", Path(self.temp.name) / "leads.sqlite3")
+        leads_override = patch.object(sqlite_leads, "SQLITE_LEADS_PATH", Path(self.temp.name) / "leads.sqlite3")
         leads_override.start()
         self.addCleanup(leads_override.stop)
         override.start()

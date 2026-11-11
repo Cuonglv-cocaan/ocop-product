@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import tempfile
 from contextlib import closing
-from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,8 +12,12 @@ import duckdb
 from dotenv import load_dotenv
 if __package__:
     from .categories import canonical_category
+    from .sqlite_leads import connect_leads, initialize_leads
+    from .leads import save_lead
 else:
     from categories import canonical_category
+    from sqlite_leads import connect_leads, initialize_leads
+    from leads import save_lead
 
 if TYPE_CHECKING:
     from langchain_community.vectorstores import DuckDB
@@ -36,8 +38,6 @@ if not db_path.is_absolute():
     db_path = PROJECT_ROOT / db_path
 
 DUCKDB_PATH = db_path
-leads_path = Path(os.getenv("SQLITE_LEADS_PATH", "data/leads.sqlite3")).expanduser()
-SQLITE_LEADS_PATH = leads_path if leads_path.is_absolute() else PROJECT_ROOT / leads_path
 default_read_only = "true" if DUCKDB_PATH.resolve() == CATALOG_PATH.resolve() else "false"
 DUCKDB_READ_ONLY = os.getenv("DUCKDB_READ_ONLY", default_read_only).strip().lower() in ("1", "true", "yes")
 EMBEDDING_MODEL = "models/gemini-embedding-001"
@@ -190,42 +190,6 @@ def migrate_csv_products(path: Path, source: str | None = None) -> tuple[int, in
     if source is None and "source" not in df.columns:
         raise ValueError("Input needs a source column or an explicit source")
     return upsert_products(df, source)
-
-def connect_leads():
-    SQLITE_LEADS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(str(SQLITE_LEADS_PATH), timeout=30)
-
-
-def initialize_leads(connection):
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS leads (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL,
-            phone TEXT NOT NULL,
-            note TEXT NOT NULL,
-            legacy_duckdb_id INTEGER UNIQUE
-        )
-    """)
-    columns = {row[1] for row in connection.execute("PRAGMA table_info(leads)")}
-    if "legacy_duckdb_id" not in columns:
-        connection.execute("ALTER TABLE leads ADD COLUMN legacy_duckdb_id INTEGER")
-        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS leads_duckdb_id ON leads(legacy_duckdb_id)")
-
-
-def save_lead(kind: str, name: str, email: str, phone: str, note: str) -> int:
-    with closing(connect_leads()) as connection, connection:
-        initialize_leads(connection)
-        cursor = connection.execute(
-            """INSERT INTO leads (created_at, kind, name, email, phone, note)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (datetime.now(timezone.utc).isoformat(), kind, name.strip(),
-             email.strip(), phone.strip(), note.strip()),
-        )
-        return cursor.lastrowid
-
 
 def migrate_duckdb_leads(path: Path | None = None) -> int:
     """Copy legacy DuckDB leads to SQLite; keep source intact and avoid duplicates."""

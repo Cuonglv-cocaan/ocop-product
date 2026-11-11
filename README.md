@@ -157,3 +157,55 @@ SQLite cục bộ trên Community Cloud không được bảo đảm lưu trữ 
 `data/categories.py` định nghĩa bảng ánh xạ `CATEGORY_ALIASES` cho Tiki và TikTok. `read_products()` trả về danh mục chuẩn tiếng Việt cho giao diện, bộ lọc và tìm kiếm; danh mục gốc trong DuckDB và CSV crawler được giữ nguyên. Ví dụ `Cooking Sauces` được gom vào `Gia vị và chế biến`, `Dried Snacks` vào `Đồ ăn vặt`. Đây là bộ danh mục nội bộ của ứng dụng, không phải hệ thống phân loại OCOP chính thức.
 
 Danh mục chưa có ánh xạ hiển thị `Chưa phân loại`. Khi nguồn có danh mục mới, thêm nguyên tên/đường dẫn danh mục vào nhóm phù hợp trong `CATEGORY_ALIASES`; không cần sửa dữ liệu cũ hay chạy lại crawler. Embeddings đã tạo trước đó cần được cập nhật nếu muốn nội dung vector phản ánh danh mục mới.
+
+## Chuẩn bị PostgreSQL / Supabase cho dữ liệu nghiệp vụ
+
+Phiên bản khảo sát: commit `6d35690` (Update UIUX). Không có AGENTS.md trong cây dự án hoặc các thư mục cha đã kiểm tra. Catalog `products`, embeddings `ocop_embeddings_gemini`, tìm kiếm, RAG, crawler và pipeline vẫn dùng DuckDB. Hiện chưa có bảng users; bảng người dùng và liên kết Supabase Auth sẽ được thiết kế ở bước sau.
+
+Các điểm truy cập leads đã rà soát:
+
+- `src/app.py::connect()` là luồng ghi từ biểu mẫu cung cầu, gọi `data/leads.py::save_lead()`. Giao diện giữ nội dung khi lưu lỗi và không hiển thị lỗi driver chứa thông tin kết nối.
+- `data/leads.py` chọn backend rõ ràng qua `LEADS_BACKEND=sqlite|postgres`; mặc định SQLite. Chỉ đặt DATABASE_URL không đổi nơi ghi. PostgreSQL lỗi không tự ghi dự phòng vào SQLite.
+- `data/sqlite_leads.py` quản lý kết nối, tạo/nâng cấp bảng SQLite và ghi leads. `data/database.py` giữ alias API cũ để tương thích.
+- `data/database.py::migrate_duckdb_leads()` đọc bảng leads DuckDB cũ bằng kết nối chỉ đọc, kiểm tra `legacy_duckdb_id` rồi ghi SQLite. Đây vẫn là lệnh legacy, không ghi PostgreSQL và không được chạy trong thay đổi này.
+- `tests/test_database_schema.py` đọc SQLite để kiểm tra và tạo leads DuckDB giả trong thư mục tạm; `tests/test_leads.py` kiểm tra chọn backend, secrets, tham số SQL và xử lý lỗi. Không có luồng đọc leads trong UI, RAG, crawler hay pipeline. Export catalog chỉ sao chép products và embeddings.
+
+`data/postgres.py` đọc cấu hình theo thứ tự: biến môi trường hệ thống, `.env` gốc (không ghi đè môi trường), rồi khóa cấp gốc trong Streamlit secrets. Kết nối mở lười cho từng transaction, timeout kết nối 10 giây, commit khi thành công, rollback khi lỗi và luôn đóng. Không cache kết nối giữa các phiên Streamlit. Tắt prepared statements để tương thích Supabase transaction pooler. Không tự tạo schema khi import hoặc gửi biểu mẫu.
+
+### Chạy local với PostgreSQL thử nghiệm
+
+Cài dependencies bằng `python -m pip install -r requirements.txt`. Tạo database thử nghiệm rỗng bằng PostgreSQL local, ví dụ Docker:
+
+```powershell
+docker run --name ocop-postgres -e POSTGRES_USER=ocop -e POSTGRES_PASSWORD=local-development-only -e POSTGRES_DB=ocop -p 5432:5432 -d postgres:16
+$env:DATABASE_URL = 'postgresql://ocop:local-development-only@localhost:5432/ocop'
+python -m data.postgres --init-schema
+$env:LEADS_BACKEND = 'postgres'
+python -m streamlit run src/app.py
+```
+
+Chỉ lệnh `--init-schema` tạo schema/bảng rỗng, không sao chép dữ liệu. Các lệnh trên là hướng dẫn để chạy riêng, chưa được thực thi trên database thật. Gửi một yêu cầu thử và kiểm tra `SELECT * FROM business.leads` trong database thử nghiệm. Khi dừng thử nghiệm, bỏ biến LEADS_BACKEND hoặc đặt lại `sqlite`. Không ghi dữ liệu thử vào database production.
+
+Supabase: lấy PostgreSQL URI từ Dashboard > Connect, không dùng REST URL hoặc anon key. Dùng session pooler hoặc transaction pooler phù hợp mạng triển khai, thêm `sslmode=require` và URL-encode mật khẩu. Lưu URI vào DATABASE_URL ở Secrets hoặc môi trường; không commit URI thật. Ví dụ Secrets (giá trị minh họa):
+
+```toml
+LEADS_BACKEND = "sqlite" # Đổi postgres sau khi hoàn tất migration/cutover
+DATABASE_URL = "postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require"
+DUCKDB_PATH = "data/catalog.duckdb"
+DUCKDB_READ_ONLY = "true"
+```
+
+Schema nghiệp vụ trong `data/init_business_db.sql` nằm ở `business`, tách khỏi `public`; không thêm schema này vào Supabase exposed schemas. Không cấp quyền truy cập leads cho anon/authenticated. Hiện kết nối chỉ từ backend bằng tài khoản DB; production nên tạo role ứng dụng riêng có USAGE schema, INSERT/SELECT cần thiết và quyền sequence, dùng role quản trị riêng cho DDL. Chưa có đăng nhập, bảng users hoặc chính sách truy cập theo người dùng.
+
+Tham khảo: [Psycopg transaction context](https://www.psycopg.org/psycopg3/docs/basic/transactions.html), [Supabase connections](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+### Kế hoạch migration (chưa thực hiện)
+
+1. Kiểm kê và sao lưu SQLite cùng các DuckDB legacy chứa leads; xác định nguồn chuẩn, ID trùng, múi giờ và dữ liệu thiếu. Không đưa bản sao chứa thông tin cá nhân vào Git.
+2. Khởi tạo schema PostgreSQL ở môi trường staging, chốt mô hình users/Auth và quyền truy cập trước khi triển khai đăng nhập. Bảng leads hiện độc lập với users.
+3. Viết công cụ import riêng có dry-run và transaction; bảo toàn created_at (chuẩn hóa UTC), ID nguồn vào `legacy_sqlite_id`/`legacy_duckdb_id`, chống trùng khi chạy lại. Nếu nhiều file SQLite có ID trùng, bổ sung định danh nguồn trước khi import. Không gộp theo email vì một người có thể gửi nhiều nhu cầu.
+4. Tạm dừng ghi leads, sao lưu cuối, nhập dữ liệu staging rồi đối chiếu tổng số, nội dung, timestamp và khóa nguồn. Nếu giữ ID chính, điều chỉnh identity sequence. Thử rollback và import lại trước production.
+5. Khi đã xác nhận dữ liệu và quyền, nhập production rồi đặt LEADS_BACKEND=postgres và DATABASE_URL trong Secrets; thử biểu mẫu, restart và kiểm tra dữ liệu bền vững. Không cần chuyển catalog/embeddings.
+6. Giữ SQLite gốc để đối soát. Nếu phải quay lại SQLite sau khi PostgreSQL đã nhận lead mới, dừng ghi và xuất/đối soát phần phát sinh trước khi đổi backend để tránh thất lạc. Không xóa dữ liệu gốc trong giai đoạn chuẩn bị.
+
+Kiểm tra không cần database thật: `python -m unittest discover -s tests`. Tests PostgreSQL dùng mock driver, xác nhận context transaction và lỗi, chưa thay thế kiểm tra tích hợp commit/rollback với PostgreSQL/Supabase thật.

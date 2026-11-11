@@ -26,3 +26,6 @@ Giá thiếu hoặc không hợp lệ hiển thị “Giá chưa cập nhật”
 Chạy kiểm thử từ gốc dự án: `python -m unittest discover -s tests`. Kiểm thử dùng database tạm và embeddings giả, không gọi Gemini hoặc crawl trang thật.
 
 Triển khai Community Cloud: xem hướng dẫn catalog sạch và DUCKDB_READ_ONLY trong README gốc. SQLite cục bộ không được bảo đảm lưu bền vững trên cloud.
+
+
+Phần chuẩn bị PostgreSQL/Supabase: xem mục tương ứng trong [README dự án](../README.md). Leads đi qua data/leads.py; SQLite vẫn là mặc định, PostgreSQL được chọn rõ bằng LEADS_BACKEND=postgres và DATABASE_URL. Catalog/embeddings tiếp tục dùng DuckDB.
