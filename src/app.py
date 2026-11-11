@@ -22,6 +22,8 @@ BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR.parent))
 from data.database import DUCKDB_PATH, read_products
 from data.leads import save_lead, LeadStorageError
+from data import auth
+from src import auth_ui
 from src import search as search_module
 
 # Streamlit can retain an imported module while rerunning the edited app.
@@ -430,9 +432,19 @@ def regions(df: pd.DataFrame):
 def connect():
     st.markdown('<div class="section-kicker">KẾT NỐI CUNG — CẦU</div>', unsafe_allow_html=True)
     st.header("Gửi nhu cầu mua sỉ hoặc đăng ký nhà cung cấp")
+    actor = auth_ui.identity()
+    if actor is None:
+        st.info('Vui lòng đăng nhập để gửi yêu cầu.')
+        auth_ui.login()
+        return
+    if actor['role'] not in ('buyer', 'seller'):
+        st.info('Admin quản lý yêu cầu tại trang Quản trị.')
+        return
     st.info("Thông tin được lưu khi bạn nhấn Gửi yêu cầu để phục vụ việc liên hệ và kết nối cung cầu.")
     with st.form("lead_form", clear_on_submit=False):
-        kind = st.radio("Bạn muốn", ["Nhận báo giá / tìm nguồn hàng", "Đăng ký nhà cung cấp"], horizontal=True)
+        from data.leads import KINDS
+        kind = KINDS[actor['role']]
+        st.caption(kind)
         name = st.text_input("Họ tên / Doanh nghiệp *")
         email = st.text_input("Email *")
         phone = st.text_input("Số điện thoại *")
@@ -445,7 +457,10 @@ def connect():
                 st.error("Email chưa đúng định dạng.")
             else:
                 try:
-                    lead_id = save_lead(kind, name, email, phone, note)
+                    lead_id = save_lead(kind, name, email, phone, note,
+                                        session=st.session_state.get('auth_session'))
+                except auth.AccessDenied as error:
+                    st.error(str(error))
                 except LeadStorageError:
                     st.error("Không thể lưu yêu cầu lúc này. Thông tin vẫn được giữ trong biểu mẫu, vui lòng thử lại.")
                 else:
@@ -459,6 +474,7 @@ def sync_navigation():
         st.session_state["page"] = selected
 
 
+actor = auth_ui.identity()
 if "page" not in st.session_state:
     st.session_state["page"] = "Trang chủ"
 try:
@@ -480,9 +496,23 @@ with head_a:
     )
 with head_b:
     pages = ["Trang chủ", "Sản phẩm OCOP", "Vùng miền", "Kết nối cung cầu"]
+    if actor is None:
+        pages.append('Đăng nhập')
+    elif actor['role'] in ('buyer', 'seller'):
+        pages.append('Yêu cầu của tôi')
+    if actor and actor['role'] == 'admin':
+        pages.append('Quản trị')
+    if st.session_state['page'] not in pages:
+        st.session_state['page'] = 'Trang chủ'
     st.session_state["navigation_page"] = st.session_state["page"]
     st.segmented_control("Điều hướng", options=pages, key="navigation_page", on_change=sync_navigation, label_visibility="collapsed", width="stretch")
 st.divider()
+
+if st.session_state.get('auth_session') is not None:
+    if actor:
+        st.caption(f"Đang đăng nhập: {actor['username']} ({actor['role']})")
+    if st.button('Đăng xuất', key='logout', on_click=auth.logout, args=(st.session_state,)):
+        st.rerun()
 
 current_page = st.session_state["page"]
 if current_page == "Trang chủ":
@@ -491,6 +521,12 @@ elif current_page == "Sản phẩm OCOP":
     directory(products)
 elif current_page == "Vùng miền":
     regions(products)
+elif current_page == 'Đăng nhập':
+    auth_ui.login()
+elif current_page == 'Yêu cầu của tôi':
+    auth_ui.requests_page()
+elif current_page == 'Quản trị':
+    auth_ui.requests_page(admin=True)
 else:
     connect()
 

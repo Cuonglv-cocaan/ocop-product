@@ -9,11 +9,45 @@ from data.database import COLUMNS
 
 
 class AppTests(unittest.TestCase):
+    def test_guest_login_failure_success_and_logout(self):
+        import secrets
+        from data import auth
+        row = dict.fromkeys(COLUMNS, '')
+        row.update(source='TIKI', product_id='test', product_name='Test tea')
+        actor = {'id': 1, 'username': 'buyer01', 'role': 'buyer'}
+        session = object()
+        password = secrets.token_urlsafe(18)
+        with patch('data.database.read_products', return_value=pd.DataFrame([row])), \
+                patch('data.auth.authenticate', side_effect=[auth.AccessDenied('Đăng nhập không đúng'), session]) as login, \
+                patch('data.auth.current_user', return_value=actor):
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
+            app.session_state['page'] = 'Kết nối cung cầu'
+            app.run(timeout=20)
+            self.assertFalse(app.exception)
+            self.assertEqual(len(app.text_area), 0)
+            app.text_input(key='login_username').set_value('buyer01')
+            app.text_input(key='login_password').set_value(password)
+            app.button[0].click().run()
+            self.assertTrue(app.error)
+            self.assertNotIn('auth_session', app.session_state)
+            app.text_input(key='login_username').set_value('buyer01')
+            app.text_input(key='login_password').set_value(password)
+            app.button[0].click().run()
+            self.assertFalse(app.exception)
+            self.assertIs(app.session_state['auth_session'], session)
+            self.assertEqual(login.call_count, 2)
+            app.session_state['private_note'] = 'Private draft'
+            app.button(key='logout').click().run()
+            self.assertFalse(app.exception)
+            self.assertNotIn('auth_session', app.session_state)
+            self.assertNotIn('private_note', app.session_state)
+
     def test_lead_form_preserves_values_on_error_and_can_retry(self):
         from data.leads import LeadStorageError
         row = dict.fromkeys(COLUMNS, '')
         row.update(source='TIKI', product_id='test', product_name='Test tea')
         with patch('data.database.read_products', return_value=pd.DataFrame([row])), \
+                patch('src.auth_ui.identity', return_value={'id': 1, 'username': 'buyer01', 'role': 'buyer'}), \
                 patch('data.leads.save_lead', side_effect=[LeadStorageError('Failed'), 42]) as save:
             app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
             app.session_state['page'] = 'Kết nối cung cầu'

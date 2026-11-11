@@ -74,11 +74,11 @@ class SchemaTests(unittest.TestCase):
 
     def test_upgrade_preserves_rows_and_lead_sequence(self):
         self.legacy_products()
-        first = db.save_lead("test", "Test", "test@example.com", "0", "Test")
+        first = sqlite_leads.save_lead("test", "Test", "test@example.com", "0", "Test")
         self.assertEqual(db.upgrade_products_schema(), 1)
         self.assertEqual(db.upgrade_products_schema(), 1)
         self.assertEqual(db.read_products().iloc[0]["product_id"], "001")
-        self.assertEqual(db.save_lead("test", "Test", "test@example.com", "0", "Test"), first + 1)
+        self.assertEqual(sqlite_leads.save_lead("test", "Test", "test@example.com", "0", "Test"), first + 1)
 
     def test_invalid_legacy_data_rolls_back(self):
         self.legacy_products(source="tiki")
@@ -90,7 +90,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_leads_never_open_duckdb(self):
         with patch.object(db, "connect", side_effect=AssertionError("DuckDB must not be opened")):
-            lead_id = db.save_lead("buyer", " Name ", "a@example.com", "0", " Note ")
+            lead_id = sqlite_leads.save_lead("buyer", " Name ", "a@example.com", "0", " Note ")
         with closing(db.connect_leads()) as conn:
             self.assertEqual(conn.execute("SELECT name, note FROM leads WHERE id=?", [lead_id]).fetchone(), ("Name", "Note"))
         self.assertFalse(db.DUCKDB_PATH.exists())
@@ -114,7 +114,7 @@ class SchemaTests(unittest.TestCase):
         db.upsert_products(pd.DataFrame([dict(source="TIKI", product_id="001", product_name="Tea")]))
         with patch.object(db, "DUCKDB_READ_ONLY", True):
             self.assertEqual(len(db.read_products()), 1)
-            self.assertGreater(db.save_lead("buyer", "Name", "a@example.com", "0", "Note"), 0)
+            self.assertGreater(sqlite_leads.save_lead("buyer", "Name", "a@example.com", "0", "Note"), 0)
 
 
 if __name__ == "__main__":

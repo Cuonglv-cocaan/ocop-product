@@ -18,7 +18,7 @@ crawlers/tiktok/urls_tiktok.txt
   -> src/app.py
 ```
 
-Sản phẩm và embeddings lưu trong DuckDB (`data/ocop.duckdb`); yêu cầu liên hệ lưu riêng trong PostgreSQL/Supabase khi chọn `LEADS_BACKEND=postgres`, hoặc SQLite cho local khi chọn `LEADS_BACKEND=sqlite`. CSV crawler chỉ là dữ liệu đầu vào, ứng dụng đọc trực tiếp bảng `products`.
+Sản phẩm và embeddings lưu trong DuckDB (`data/ocop.duckdb`); tài khoản và yêu cầu liên hệ có chủ sở hữu lưu riêng trong PostgreSQL/Supabase với `LEADS_BACKEND=postgres`. SQLite được giữ làm nguồn migration của bước 3; giao diện có đăng nhập không ghi SQLite. CSV crawler chỉ là dữ liệu đầu vào, ứng dụng đọc trực tiếp bảng `products`.
 
 ## Cài đặt và chạy
 
@@ -86,7 +86,7 @@ Các cột lưu dưới dạng VARCHAR để giữ ID có số 0 đầu và tư�
 
 Module database đọc `.env` ở gốc dự án. `DUCKDB_PATH=data/ocop.duckdb` tính từ gốc dự án, không phụ thuộc thư mục chạy lệnh. Biến môi trường hệ thống được ưu tiên hơn `.env`. Ứng dụng đọc lại database mỗi lần Streamlit chạy lại.
 
-Biểu mẫu gọi `data.leads.save_lead()`, chưa tự gửi email. Backend bắt buộc khai báo bằng `LEADS_BACKEND`. SQLite local dùng đường dẫn `SQLITE_LEADS_PATH`; PostgreSQL dùng `DATABASE_URL` và bảng `business.leads`. Lệnh legacy chuyển leads từ DuckDB cũ sang SQLite vẫn được giữ:
+Biểu mẫu gọi `data.leads.save_lead()`, chưa tự gửi email. Bước 4 yêu cầu phiên đăng nhập và `LEADS_BACKEND=postgres`, dùng `DATABASE_URL` và bảng `business.leads`. SQLite dùng `SQLITE_LEADS_PATH` cho các công cụ legacy; lệnh chuyển leads từ DuckDB cũ sang SQLite vẫn được giữ:
 
 ```powershell
 python data/database.py --migrate-duckdb-leads data/ocop.duckdb
@@ -162,12 +162,12 @@ Danh mục chưa có ánh xạ hiển thị `Chưa phân loại`. Khi nguồn c�
 
 ## Chuẩn bị PostgreSQL / Supabase cho dữ liệu nghiệp vụ
 
-Phiên bản khảo sát: commit `6d35690` (Update UIUX). Không có AGENTS.md trong cây dự án hoặc các thư mục cha đã kiểm tra. Catalog `products`, embeddings `ocop_embeddings_gemini`, tìm kiếm, RAG, crawler và pipeline vẫn dùng DuckDB. Hiện chưa có bảng users; bảng người dùng và liên kết Supabase Auth sẽ được thiết kế ở bước sau.
+Phiên bản khảo sát ban đầu: commit `6d35690` (Update UIUX). Không có AGENTS.md trong cây dự án hoặc các thư mục cha đã kiểm tra. Catalog `products`, embeddings `ocop_embeddings_gemini`, tìm kiếm, RAG, crawler và pipeline vẫn dùng DuckDB. Bước 4 dùng tài khoản nội bộ trong `business.users`, không dùng Supabase Auth/OIDC/Google.
 
 Các điểm truy cập leads đã rà soát:
 
 - `src/app.py::connect()` là luồng ghi từ biểu mẫu cung cầu, gọi `data/leads.py::save_lead()`. Giao diện giữ nội dung khi lưu lỗi và không hiển thị lỗi driver chứa thông tin kết nối.
-- `data/leads.py` yêu cầu chọn backend rõ ràng qua `LEADS_BACKEND=sqlite|postgres`. Thiếu/sai backend sẽ báo lỗi lưu; chỉ đặt DATABASE_URL không đổi nơi ghi. PostgreSQL lỗi không tự ghi dự phòng vào SQLite.
+- `data/leads.py` yêu cầu `LEADS_BACKEND=postgres` và phiên đăng nhập hợp lệ cho đọc/ghi yêu cầu. Thiếu/sai backend sẽ báo lỗi; PostgreSQL lỗi không tự ghi dự phòng vào SQLite.
 - `data/sqlite_leads.py` quản lý kết nối, tạo/nâng cấp bảng SQLite và ghi leads. `data/database.py` giữ alias API cũ để tương thích.
 - `data/database.py::migrate_duckdb_leads()` đọc bảng leads DuckDB cũ bằng kết nối chỉ đọc, kiểm tra `legacy_duckdb_id` rồi ghi SQLite. Đây vẫn là lệnh legacy, không ghi PostgreSQL và không được chạy trong thay đổi này.
 - `tests/test_database_schema.py` đọc SQLite để kiểm tra và tạo leads DuckDB giả trong thư mục tạm; `tests/test_leads.py` kiểm tra chọn backend, secrets, tham số SQL và xử lý lỗi. Không có luồng đọc leads trong UI, RAG, crawler hay pipeline. Export catalog chỉ sao chép products và embeddings.
@@ -197,7 +197,7 @@ DUCKDB_PATH = "data/catalog.duckdb"
 DUCKDB_READ_ONLY = "true"
 ```
 
-Schema nghiệp vụ trong `data/migrations/` nằm ở `business`, tách khỏi `public`; không thêm schema này vào Supabase exposed schemas. Không cấp quyền truy cập leads cho anon/authenticated. Hiện kết nối chỉ từ backend bằng tài khoản DB; production nên tạo role ứng dụng riêng có USAGE schema, INSERT/SELECT cần thiết và quyền sequence, dùng role quản trị riêng cho DDL. Chưa có đăng nhập, bảng users hoặc chính sách truy cập theo người dùng.
+Schema nghiệp vụ trong `data/migrations/` nằm ở `business`, tách khỏi `public`; không thêm schema này vào Supabase exposed schemas. Không cấp quyền truy cập users/leads cho anon/authenticated. Kết nối chỉ từ backend bằng tài khoản DB; dùng role quản trị riêng cho DDL. Phân quyền demo nằm ở các hàm dữ liệu Python, không phải PostgreSQL RLS hay Supabase Auth.
 
 Tham khảo: [Psycopg transaction context](https://www.psycopg.org/psycopg3/docs/basic/transactions.html), [Supabase connections](https://supabase.com/docs/guides/database/connecting-to-postgres).
 
@@ -214,7 +214,7 @@ Kiểm tra không cần database: `python -m unittest discover -s tests` (bỏ q
 
 ### Migration SQL có phiên bản
 
-Chạy tường minh `python -m data.postgres --init-schema` bằng tài khoản DDL. Runner áp dụng `001_create_leads.sql`, `002_sqlite_source_identity.sql` theo thứ tự trong một transaction, dùng advisory lock ngăn hai runner chạy đồng thời, lưu phiên bản và SHA-256 vào `business.schema_migrations`. Chạy lại không áp dụng lại; sửa file đã áp dụng sẽ gây lỗi và rollback. Thêm file phiên bản mới khi đổi schema, không sửa migration đã chạy. Không tự chạy schema migration khi khởi động app hoặc gửi form.
+Chạy tường minh `python -m data.postgres --init-schema` bằng tài khoản DDL. Runner áp dụng `001_create_leads.sql`, `002_sqlite_source_identity.sql`, `003_internal_accounts.sql` theo thứ tự trong một transaction, dùng advisory lock ngăn hai runner chạy đồng thời, lưu phiên bản và SHA-256 vào `business.schema_migrations`. Chạy lại không áp dụng lại; sửa file đã áp dụng sẽ gây lỗi và rollback. Thêm file phiên bản mới khi đổi schema, không sửa migration đã chạy. Không tự chạy schema migration khi khởi động app hoặc gửi form.
 
 Schema đã tạo bằng bước chuẩn bị cũ được tiếp nhận bởi migration 001, sau đó nâng cấp bởi 002. ID SQLite đã có được gán namespace `legacy-default`; nếu đây là nguồn đã import trước đó, tiếp tục dùng `--source-id legacy-default`. Schema khác với bản chuẩn cần đối chiếu trước khi áp dụng.
 
@@ -251,3 +251,57 @@ docker stop ocop-leads-test
 ```
 
 Tests chỉ chấp nhận TEST_DATABASE_URL có host localhost/127.0.0.1 và database `ocop_leads_test`; không lấy DATABASE_URL thật làm đích test. Mỗi test tái tạo và dọn schema business trên database test này: tuyệt đối không đặt dữ liệu thật vào đó. SQLite fixtures nằm trong thư mục tạm. Bao gồm lưu lead thấy được từ kết nối mới, rollback sau INSERT và lỗi commit bằng deferred trigger, đóng kết nối khi commit lỗi, migration schema lặp lại, dry-run không ghi, import hai lần không trùng, xung đột nội dung, lỗi từng dòng và báo cáo CLI. AppTest kiểm tra form giữ giá trị khi lỗi và gửi lại thành công.
+
+## Bước 4 — đăng nhập nội bộ cho demo
+
+Khách vẫn xem catalog, tìm kiếm và RAG mà không cần đăng nhập. Trang **Đăng nhập** dùng username/password nội bộ; không cấu hình Google, OIDC, Supabase Auth, callback URL hoặc email. Tài khoản và yêu cầu mới cần PostgreSQL/Supabase và `LEADS_BACKEND=postgres`. SQLite cũ chỉ phục vụ migration/đối soát; không có nhánh ghi SQLite để bỏ qua xác thực. Có thể dùng PostgreSQL local cho demo ngoại tuyến với dịch vụ Supabase.
+
+### Áp dụng thủ công trên database bạn chọn
+
+Code không tự chạy migration, seed hoặc đổi mật khẩu khi khởi động. Bước này chưa áp dụng migration 003 hay seed lên Supabase thật. Sau khi review PR, cấu hình DATABASE_URL ở môi trường hoặc Streamlit Secrets (URI Session pooler với sslmode=require), cài dependencies rồi chạy:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m data.postgres --init-schema
+python -m data.accounts seed
+python -m streamlit run src/app.py
+```
+
+Lệnh seed hỏi mật khẩu bằng prompt ẩn. Nhập mật khẩu demo chung đã thống nhất cho môn học; mật khẩu không nằm trong source, README, SQL hoặc đối số lệnh. Khi tự động hóa, có thể cung cấp biến môi trường riêng `DEMO_ACCOUNT_PASSWORD`, không commit giá trị vào repository và xóa biến sau khi dùng. Không có giá trị mặc định cho mật khẩu. Không dán mật khẩu vào chat hoặc cấu hình mẫu.
+
+Seed tạo 5 tài khoản nếu thiếu: `buyer01`, `buyer02` có role buyer; `seller01`, `seller02` có role seller; `admin01` có role admin. Username luôn strip rồi lowercase và chỉ nhận 3–32 ký tự ASCII a-z, 0-9, dấu gạch dưới; unique/check constraint trong PostgreSQL giữ cùng quy tắc. Chỉ lưu hash Argon2id có salt ngẫu nhiên từ argon2-cffi. Seed chạy lại báo created/skipped, giữ nguyên mọi mật khẩu, role và active của tài khoản đã tồn tại, kể cả tài khoản inactive.
+
+Đổi mật khẩu bằng lệnh vận hành riêng, cũng nhập mật khẩu mới qua prompt ẩn (hoặc biến môi trường trên):
+
+```powershell
+python -m data.accounts set-password --username buyer01
+```
+
+Lệnh đổi mật khẩu không tự kích hoạt tài khoản inactive, không thay role, và tăng auth_version để vô hiệu hóa phiên đăng nhập cũ. Đây là công cụ vận hành với quyền DB, không phải chức năng reset password công khai. Không có đăng ký, quên mật khẩu hay xác minh email.
+
+### Phạm vi quyền
+
+| Vai trò | Gửi yêu cầu | Đọc/sửa yêu cầu | Tài khoản |
+| --- | --- | --- | --- |
+| Khách | Không | Không | Chỉ đăng nhập |
+| Buyer | Nhu cầu mua / tìm nguồn hàng | Chỉ của mình | Không quản trị |
+| Seller | Đăng ký nhà cung cấp | Chỉ đăng ký của mình | Không quản trị |
+| Admin | Quản lý, không gửi thay người khác | Tất cả, kể cả leads cũ chưa có chủ | Xem danh sách và bật/tắt tài khoản khác |
+
+Không có nút đổi role, chọn user_id, chuyển nhanh tài khoản hoặc đăng nhập thay người khác. Admin không thể tự khóa tài khoản đang dùng. Người dùng không được tự thay role. Chức năng seller hiện chỉ gồm đăng ký cung cấp và quản lý đăng ký của chính họ; không có danh sách nhu cầu buyer hoặc luồng nhận/chia sẻ lead tự động.
+
+`data/auth.py` phát identity có chữ ký nội bộ sau khi kiểm tra mật khẩu. `st.session_state` chỉ giữ phiên gồm user_id, auth_version và chữ ký, không giữ role làm căn cứ phân quyền. Khóa chữ ký ngẫu nhiên tồn tại trong tiến trình; restart app hoặc refresh tạo phiên mới có thể yêu cầu đăng nhập lại, phù hợp demo. Không có cookie đăng nhập bền vững. Nút Đăng xuất xóa toàn bộ session state: identity, widget mật khẩu, bản nháp, dữ liệu riêng và lịch sử chat.
+
+Mỗi hàm bảo vệ (`save_lead`, `read_leads`, `update_note`, `list_accounts`, `set_active`) đọc lại account từ DB trong transaction để kiểm tra active, auth_version và role. Khóa đọc giữ account nhất quán trong thao tác. Điều kiện owner nằm trong SQL, kể cả khi truyền trực tiếp ID lead khác; menu chỉ hỗ trợ điều hướng. Form không quyết định role hoặc chủ sở hữu. `save_lead` giữ 5 trường cũ và thêm keyword `session=...`; gọi thiếu session bị từ chối. Loại yêu cầu phải khớp role từ database. Trả thành công chỉ sau commit; lỗi lưu giữ nội dung form và không fallback.
+
+Migration `003_internal_accounts.sql` chỉ thêm bảng users, cột nullable `leads.user_id` có foreign key và index. Không sửa hoặc xóa leads bước 3, không tự suy đoán chủ theo tên/email. Leads import bằng công cụ SQLite tiếp tục không có chủ sở hữu và chỉ admin đọc/sửa. Migrations 001/002 giữ nguyên checksum; runner vẫn chạy lại an toàn. Không công khai schema business qua Supabase Data API. Tài khoản DB dùng cho app cần USAGE schema business, SELECT users, SELECT/INSERT/UPDATE leads, UPDATE users cho quản trị và quyền sequence cần thiết; giữ quyền DDL/seed ở người vận hành. Đây là phân quyền trong ứng dụng demo, không phải hệ thống đăng nhập production với rate limiting/MFA/khôi phục tài khoản.
+
+### Kiểm thử bước 4
+
+Dùng TEST_DATABASE_URL riêng theo phần PostgreSQL test ở trên, không dùng DATABASE_URL thật. Tests tích hợp chỉ chấp nhận localhost/127.0.0.1 và database `ocop_leads_test`, tái tạo schema business mỗi test. Mật khẩu fixtures được sinh ngẫu nhiên; không dùng tài khoản hoặc dữ liệu thật.
+
+```powershell
+python -m unittest discover -s tests
+```
+
+Bao gồm đăng nhập đúng/sai/username không tồn tại/inactive; đăng xuất xóa dữ liệu riêng; buyer01 không đọc/sửa lead buyer02; buyer/seller bị chặn quản trị; seller bị chặn loại yêu cầu buyer; chữ ký identity giả bị từ chối; thay role/khóa account/đổi mật khẩu có hiệu lực với phiên cũ; seed lặp lại không đổi hash/role/active; username unique; leads cũ vẫn không chủ; commit/rollback và migration SQLite bước 3. AppTest kiểm tra màn hình login, lỗi login, login thành công, logout và form giữ dữ liệu khi lưu lỗi. Catalog/search/retrieval/crawlers/vectorization vẫn có tests hồi quy cũ.

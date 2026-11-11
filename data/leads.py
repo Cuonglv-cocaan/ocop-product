@@ -1,40 +1,74 @@
-"""Business storage boundary. Backend changes require explicit configuration."""
-import sqlite3
+"""Authorized business operations; identity comes from internal login."""
+from contextlib import contextmanager
 
 if __package__:
-    from . import postgres, sqlite_leads
+    from . import auth, postgres
 else:
     import postgres
-    import sqlite_leads
+    import auth
+
+KINDS = {'buyer': 'Nhận báo giá / tìm nguồn hàng', 'seller': 'Đăng ký nhà cung cấp'}
 
 
 class LeadStorageError(RuntimeError):
     """Safe public error: never include connection strings or personal data."""
 
 
-def save_lead(kind: str, name: str, email: str, phone: str, note: str) -> int:
-    try:
-        backend = postgres.setting('LEADS_BACKEND').strip().lower()
-        if backend == 'sqlite':
-            return sqlite_leads.save_lead(kind, name, email, phone, note)
-        if backend != 'postgres':
-            raise ValueError('Unsupported LEADS_BACKEND')
-        return _save_postgres(kind, name, email, phone, note)
-    except (sqlite3.Error, OSError, ValueError, ImportError):
-        raise LeadStorageError('Unable to save contact request') from None
-
-
-def _save_postgres(kind, name, email, phone, note):
+@contextmanager
+def _operation():
     import psycopg
     try:
+        if postgres.setting('LEADS_BACKEND').strip().lower() != 'postgres':
+            raise LeadStorageError('Đăng nhập và yêu cầu có chủ sở hữu cần PostgreSQL.')
         with postgres.transaction() as connection:
-            row = connection.execute(
-                '''INSERT INTO business.leads (kind, name, email, phone, note)
-                   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
-                (kind, name.strip(), email.strip(), phone.strip(), note.strip()),
-            ).fetchone()
-            lead_id = row[0]
-        # The context must finish committing before the caller can show success.
-        return lead_id
-    except psycopg.Error:
-        raise LeadStorageError('Unable to save contact request') from None
+            yield connection
+    except auth.AccessDenied:
+        raise
+    except (psycopg.Error, OSError, ValueError):
+        raise LeadStorageError('Không thể truy cập yêu cầu lúc này.') from None
+
+
+def save_lead(kind, name, email, phone, note, *, session=None):
+    with _operation() as connection:
+        actor = auth.require_user(connection, session, {'buyer', 'seller'})
+        if kind != KINDS[actor['role']]:
+            raise auth.AccessDenied('Loại yêu cầu không thuộc vai trò của bạn.')
+        values = tuple(value.strip() for value in (name, email, phone, note))
+        if not all(values):
+            raise ValueError('Required lead fields are empty')
+        row = connection.execute('''INSERT INTO business.leads(kind,name,email,phone,note,user_id)
+            VALUES (%s,%s,%s,%s,%s,%s) RETURNING id''', (kind, *values, actor['id'])).fetchone()
+        lead_id = row[0]
+    return lead_id
+
+
+def read_leads(session, lead_id=None):
+    with _operation() as connection:
+        actor = auth.require_user(connection, session, {'buyer', 'seller', 'admin'})
+        clauses, params = [], []
+        if actor['role'] != 'admin':
+            clauses.extend(['user_id=%s', 'kind=%s'])
+            params.extend([actor['id'], KINDS[actor['role']]])
+        if lead_id is not None:
+            clauses.append('id=%s')
+            params.append(lead_id)
+        where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
+        rows = connection.execute('''SELECT id,created_at,kind,name,email,phone,note,user_id
+            FROM business.leads''' + where + ' ORDER BY id DESC', params).fetchall()
+    return [dict(zip(('id', 'created_at', 'kind', 'name', 'email', 'phone', 'note', 'user_id'), row)) for row in rows]
+
+
+def update_note(session, lead_id, note):
+    with _operation() as connection:
+        actor = auth.require_user(connection, session, {'buyer', 'seller', 'admin'})
+        if not note.strip():
+            raise ValueError('Note is required')
+        if actor['role'] == 'admin':
+            row = connection.execute('UPDATE business.leads SET note=%s WHERE id=%s RETURNING id',
+                                     (note.strip(), lead_id)).fetchone()
+        else:
+            row = connection.execute('''UPDATE business.leads SET note=%s
+                WHERE id=%s AND user_id=%s AND kind=%s RETURNING id''',
+                (note.strip(), lead_id, actor['id'], KINDS[actor['role']])).fetchone()
+        if row is None:
+            raise auth.AccessDenied('Không tìm thấy yêu cầu hoặc bạn không có quyền sửa.')
