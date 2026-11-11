@@ -167,7 +167,7 @@ class PostgresIntegrationTests(unittest.TestCase):
     def test_migrations_repeatable_and_upgrade_prepared_schema(self):
         postgres.initialize_schema()
         with postgres.transaction() as connection:
-            self.assertEqual(connection.execute('SELECT count(*) FROM business.schema_migrations').fetchone()[0], 3)
+            self.assertEqual(connection.execute('SELECT count(*) FROM business.schema_migrations').fetchone()[0], 4)
             connection.execute('DROP SCHEMA business CASCADE')
             connection.execute(Path('data/migrations/001_create_leads.sql').read_text(encoding='utf-8'))
             connection.execute("INSERT INTO business.leads(kind,name,email,phone,note,legacy_sqlite_id) VALUES ('b','old','e','0','n',8)")

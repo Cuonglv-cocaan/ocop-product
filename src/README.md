@@ -32,3 +32,6 @@ PostgreSQL/Supabase và migration: xem mục tương ứng trong [README dự á
 
 
 Bước 4: đăng nhập nội bộ và yêu cầu có chủ sở hữu dùng PostgreSQL với LEADS_BACKEND=postgres. Khách vẫn xem và tìm kiếm; xem README gốc để chạy migration 003 và seed thủ công bằng prompt mật khẩu. SQLite chỉ còn là nguồn legacy, không dùng cho form có đăng nhập. Không dùng Supabase Auth hoặc Google/OIDC.
+
+
+Hồ sơ nhà cung cấp: migration 004, seed riêng bằng python -m data.seed_suppliers. Buyer/seller đăng ký tại Nhà cung cấp; admin duyệt tại Duyệt nhà cung cấp. Cung ứng cần role seller + membership + approved; xem README gốc để biết quy trình và test. Không tự chạy migration/seed trên Supabase thật.

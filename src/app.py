@@ -24,6 +24,7 @@ from data.database import DUCKDB_PATH, read_products
 from data.leads import save_lead, LeadStorageError
 from data import auth
 from src import auth_ui
+from src import supplier_ui
 from src import search as search_module
 
 # Streamlit can retain an imported module while rerunning the edited app.
@@ -431,7 +432,7 @@ def regions(df: pd.DataFrame):
 
 def connect():
     st.markdown('<div class="section-kicker">KẾT NỐI CUNG — CẦU</div>', unsafe_allow_html=True)
-    st.header("Gửi nhu cầu mua sỉ hoặc đăng ký nhà cung cấp")
+    st.header("Gửi nhu cầu mua sỉ hoặc tìm nguồn hàng")
     actor = auth_ui.identity()
     if actor is None:
         st.info('Vui lòng đăng nhập để gửi yêu cầu.')
@@ -439,6 +440,12 @@ def connect():
         return
     if actor['role'] not in ('buyer', 'seller'):
         st.info('Admin quản lý yêu cầu tại trang Quản trị.')
+        return
+    if actor['role'] == 'seller':
+        st.info('Đăng ký và quản lý đơn vị cung cấp tại trang Nhà cung cấp. Quyền cung ứng được kiểm tra theo từng đơn vị đã duyệt.')
+        if st.button('Mở hồ sơ nhà cung cấp', key='open_supplier_profile'):
+            st.session_state['page'] = 'Nhà cung cấp'
+            st.rerun()
         return
     st.info("Thông tin được lưu khi bạn nhấn Gửi yêu cầu để phục vụ việc liên hệ và kết nối cung cầu.")
     with st.form("lead_form", clear_on_submit=False):
@@ -466,6 +473,9 @@ def connect():
                 else:
                     st.success(f"Đã lưu yêu cầu của bạn. Mã yêu cầu: #{lead_id}.")
                     st.session_state["request_product"] = ""
+    if st.button('Đăng ký trở thành nhà cung cấp', key='register_supplier_link'):
+        st.session_state['page'] = 'Nhà cung cấp'
+        st.rerun()
 
 
 def sync_navigation():
@@ -479,13 +489,14 @@ if "page" not in st.session_state:
     st.session_state["page"] = "Trang chủ"
 try:
     products = load_products()
+    catalog_ready = not products.empty
     if products.empty:
         st.warning("Chưa có sản phẩm trong database đang được cấu hình.")
         st.caption(f"Database: {DUCKDB_PATH.name}. Trên Community Cloud, đặt DUCKDB_PATH=data/catalog.duckdb và DUCKDB_READ_ONLY=true trong Secrets, rồi khởi động lại ứng dụng. Khi chạy ở máy cá nhân, nhập dữ liệu bằng: python data/database.py --migrate-csv data/products_ocop.csv")
-        st.stop()
 except Exception as exc:
     st.error(f"Không đọc được dữ liệu sản phẩm: {exc}")
-    st.stop()
+    products = pd.DataFrame()
+    catalog_ready = False
 
 with st.container(key="site_header"):
     head_a, head_b = st.columns([1.15, 2.85], gap="large", vertical_alignment="center")
@@ -500,8 +511,11 @@ with head_b:
         pages.append('Đăng nhập')
     elif actor['role'] in ('buyer', 'seller'):
         pages.append('Yêu cầu của tôi')
+    if actor and actor['role'] in ('buyer', 'seller'):
+        pages.append('Nhà cung cấp')
     if actor and actor['role'] == 'admin':
         pages.append('Quản trị')
+        pages.append('Duyệt nhà cung cấp')
     if st.session_state['page'] not in pages:
         st.session_state['page'] = 'Trang chủ'
     st.session_state["navigation_page"] = st.session_state["page"]
@@ -515,7 +529,9 @@ if st.session_state.get('auth_session') is not None:
         st.rerun()
 
 current_page = st.session_state["page"]
-if current_page == "Trang chủ":
+if current_page in ('Trang chủ', 'Sản phẩm OCOP', 'Vùng miền') and not catalog_ready:
+    st.info('Catalog chưa sẵn sàng. Bạn vẫn có thể đăng nhập và quản lý hồ sơ của mình.')
+elif current_page == "Trang chủ":
     home(products)
 elif current_page == "Sản phẩm OCOP":
     directory(products)
@@ -527,6 +543,10 @@ elif current_page == 'Yêu cầu của tôi':
     auth_ui.requests_page()
 elif current_page == 'Quản trị':
     auth_ui.requests_page(admin=True)
+elif current_page == 'Nhà cung cấp':
+    supplier_ui.page()
+elif current_page == 'Duyệt nhà cung cấp':
+    supplier_ui.page(admin=True)
 else:
     connect()
 
