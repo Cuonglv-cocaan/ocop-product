@@ -445,3 +445,67 @@ python -m unittest discover -s tests
 ```
 
 Bao gồm luồng buyer → admin → seller → buyer → connected, quyền khác buyer/membership/approved, thiếu hoặc giả owner, thời gian/số tiền/float không hợp lệ, hết hạn, supplier suspended, giữ phiên bản, từ chối/gửi lại, đóng phiếu, double selection đồng thời, rollback quote/selection khi event lỗi, seed hai lần và UI cho buyer/admin/seller. Catalog, crawler, embeddings, RAG, leads cũ và schema 001–004 giữ nguyên.
+
+## Matching theo quy tắc và hiệu quả kết nối
+
+Migration `006_matching_metrics.sql` bổ sung các khai báo có cấu trúc vào `supplier_products`: `category`, `service_regions` (danh sách tỉnh/thành), `preparation_days` (ngày nguyên), `reference_price` (VND mỗi đơn vị), `reference_price_unit`. Tái sử dụng `minimum_order`, `unit`, `is_active`; giữ nguyên `preparation_time`, `capacity_description`, `suppliers.delivery_areas` dạng mô tả và không tự chuyển chúng thành dữ liệu xác minh. Buyer khai báo thêm `purchase_requests.delivery_region`, tách khỏi địa chỉ giao tự do. Dữ liệu cũ để trống/NULL nên kết quả có thể cần xác nhận. Nhà cung cấp tự nhập dữ liệu qua form cung ứng; khai báo không đồng nghĩa đã được kiểm chứng.
+
+Áp dụng migration bằng lệnh operator `python -m data.postgres --init-schema` trước khi chạy phiên bản app này. Không tự chạy migration/seed khi mở app; không sửa các migration 001–005 đã áp dụng. Migration 006 cũng thêm `purchase_requests.is_demo`, đánh dấu các phiếu có `demo_key` cũ là mô phỏng, và thêm `request_matches.matching_snapshot` JSONB / `rule_version`. Seed nhu cầu mới đặt `is_demo=true`; giữ nguyên tính chống trùng. Không có dịch vụ AI trả phí, Redis, vector database hoặc framework agent mới. Quyền bảng/sequence giữ như bước trước; dashboard chỉ cần đọc các bảng nghiệp vụ hiện có.
+
+### Thuật toán rules-v1
+
+`data.matching.find_candidates(session, request_id)` chỉ admin được gọi, trả một lần mỗi supplier approved có liên kết sản phẩm `is_active=true`. Không suy ra supplier từ brand hay việc xuất hiện trong catalog. Không đọc giá catalog, embedding, sao OCOP hoặc mô tả để khẳng định giá sỉ, năng lực hay chứng nhận đã xác minh. Mỗi ứng viên có toàn bộ sản phẩm đang cung ứng, được xếp theo kết quả tốt nhất; UI hiển thị tối đa ba sản phẩm đầu. Một sản phẩm phải được đánh giá trọn vẹn, không ghép các điều kiện tốt của nhiều sản phẩm thành một phương án giả.
+
+| Tiêu chí bắt buộc khi áp dụng | Đáp ứng và điểm | Không đáp ứng / chưa có dữ liệu |
+| --- | --- | --- |
+| Sản phẩm/danh mục | 40: đúng `(source, product_id)` **hoặc** danh mục khai báo trùng danh mục nhu cầu | Khác khóa và khác danh mục đã biết: loại. Nhu cầu chỉ định khóa, không có danh mục thay thế, khóa khác: loại. Thiếu danh mục cần để so sánh: cần xác nhận. |
+| Khu vực | 20: tỉnh/thành giao có trong danh sách phục vụ khai báo | Đủ hai bên nhưng không trùng: loại. Thiếu một bên: cần xác nhận. |
+| Đặt tối thiểu | 15: nhu cầu ≥ minimum_order, cùng đơn vị | Dưới tối thiểu: loại. Thiếu số hoặc đơn vị khác/chưa biết: cần xác nhận; không tự quy đổi kg/hộp. |
+| Chuẩn bị | 15: preparation_days ≤ số ngày từ ngày đánh giá đến hạn giao | Không kịp: loại. Thiếu số ngày: cần xác nhận. Đây là thời gian chuẩn bị, vận chuyển vẫn cần xác nhận riêng. |
+| Ngân sách | 10: giá tham khảo khai báo cùng đơn vị, ≤ ngân sách trên cùng cơ sở | `per_unit`: so đơn giá; `total`: nhân đơn giá × quantity. Vượt: loại. Thiếu giá/khác đơn vị: cần xác nhận. Buyer không đặt ngân sách: không áp dụng, 0 điểm. |
+
+So sánh danh mục/tỉnh thành/đơn vị bằng Unicode NFC, casefold và gộp khoảng trắng; không bỏ dấu, không dùng substring, không đồng nhất tên viết tắt hay “toàn quốc” thành danh sách đã xác nhận. Ví dụ buyer và supplier cùng ghi `Hồ Chí Minh`; `TP.HCM` chưa tự quy đổi. Ngày đánh giá tại `Asia/Ho_Chi_Minh`. Không tự tách địa chỉ tự do, không tự trích ngày từ “khoảng 3–5 ngày”.
+
+Từng tiêu chí trả `met` (Đáp ứng), `failed` (Không đáp ứng), `unknown` (Chưa có dữ liệu/cần xác nhận); ngân sách không đặt trả `not_applicable`. Có bất kỳ failed → nhóm **Bị loại**; không failed nhưng có unknown → **Cần xác nhận**; còn lại → **Đề xuất chính**. Thiếu dữ liệu không được cộng điểm. Tổng là **điểm phù hợp theo quy tắc**, tối đa 100 (không đặt ngân sách tối đa 90), không phải xác suất thành công. Nhóm được ưu tiên trước điểm; trong nhóm điểm giảm dần, bằng điểm sắp theo supplier_id tăng dần. Sản phẩm bằng nhóm/điểm sắp source, product_id để kết quả ổn định.
+
+**Giá catalog** là giá bán tham khảo từ sàn; **giá tham khảo nhà cung cấp** là tự khai báo VND mỗi đơn vị, chưa xác nhận vận chuyển/thuế; **báo giá thực tế** là `request_quotes` có số lượng, chi phí và phiên bản cho một lượt phân. Không thay thế ba loại giá cho nhau. Điểm ngân sách dựa trên phần giá tham khảo có thể so sánh, không khẳng định tổng chi phí cuối cùng. Quy tắc không cấm seller gửi báo giá thực tế vượt ngân sách theo luồng cũ.
+
+Admin vào chi tiết Nhu cầu, bật **Hiển thị kết quả matching**, xem các nhóm, lý do và thông tin thiếu. Chọn ứng viên, xác nhận đã kiểm tra rồi bấm **Xác nhận phân ứng viên**. Mở màn hình/chạy matching chỉ đọc, không tạo match/event hay gửi email/thông báo. Server kiểm tra lại quyền, trạng thái phiếu, approved và dữ liệu cung ứng; tính lại điểm rồi lưu snapshot lý do/sản phẩm/điểm/ngày đánh giá và `rules-v1` cùng transaction tạo match/event. Snapshot cũ không tính lại khi supplier thay dữ liệu. Nhóm cần xác nhận vẫn cho admin chủ động phân sau xác nhận, nhóm bị loại không được phân bằng nút gợi ý. Form **Phân đơn vị đã duyệt** thủ công vẫn hoạt động bình thường và không áp quy tắc loại; các phân thủ công có snapshot/version NULL để phân biệt nguồn quyết định.
+
+### Định nghĩa KPI
+
+Trang **Hiệu quả kết nối** và API `data.metrics.dashboard` chỉ admin. Bộ lọc ngày lấy **nhóm yêu cầu được tạo** từ 00:00 ngày bắt đầu đến trước 00:00 ngày kế tiếp sau ngày kết thúc ở `Asia/Ho_Chi_Minh`. Không lọc ngày phân/báo giá riêng. Trạng thái và lịch sử của nhóm đó phản ánh **đến thời điểm xem**; các lần phân/báo giá sau khoảng ngày chọn vẫn được tính. Đọc các bảng trong một transaction REPEATABLE READ, không cache dữ liệu riêng. Timestamp DB là TIMESTAMPTZ; hiển thị timestamp theo `Asia/Ho_Chi_Minh` (UTC+07:00), tương đương offset Asia/Bangkok cũ.
+
+| KPI | Cách tính trên nhóm yêu cầu đã chọn |
+| --- | --- |
+| Yêu cầu tạo | DISTINCT request_id trong nhóm. |
+| Yêu cầu đã phân | DISTINCT request_id có ít nhất một request_match. |
+| Tỷ lệ có báo giá | DISTINCT request_id có ít nhất một request_quote / DISTINCT request_id đã phân. Đếm cả lịch sử superseded/selected, không chỉ bản active. |
+| Trung vị từ phân đến báo giá đầu | Trên từng lượt phân (match) có báo giá: thời điểm báo giá đầu của match trừ assigned_at của chính match; lấy trung vị giờ của các lượt đó. Không lấy mốc phân của supplier khác. Chưa có báo giá không tính thành 0. |
+| Buyer chọn báo giá | DISTINCT request_id có event selected hoặc selected_quote_id; vẫn ghi nhận từng chọn nếu sau đó hủy. |
+| Buyer xác nhận connected | DISTINCT request_id có trạng thái connected. Chỉ xác nhận kết nối trao đổi, không phải doanh thu/giao dịch thành công. |
+| Hủy / đóng không tìm nguồn | Đếm riêng DISTINCT request_id có trạng thái cancelled / closed_no_match. |
+| Theo supplier: được phân | Số match duy nhất (mỗi request/supplier chỉ có một match theo schema). |
+| Theo supplier: phản hồi | Số match có ít nhất một event declined/quoted hoặc một quote đã gửi. Từ chối là phản hồi, không phải báo giá. |
+| Theo supplier: gửi báo giá | Số match có ít nhất một quote, không phải số phiên bản. |
+| Theo supplier: thời gian phản hồi | Trên từng match: phản hồi đầu (từ chối hoặc báo giá) trừ assigned_at của chính match; hiển thị trung vị giờ của các match đã phản hồi. |
+
+Mẫu số 0 hoặc không có khoảng thời gian hợp lệ: **Chưa có dữ liệu**, không hiện 0% hay thời gian 0 giả. Các số lượng thực sự bằng 0 vẫn hiển thị 0. Một yêu cầu phân hai đơn vị và có ba phiên bản báo giá vẫn chỉ tính một yêu cầu đã phân/có báo giá. Lọc supplier thu hẹp nhóm tới yêu cầu từng phân cho supplier đó và chỉ xét lượt phân/báo giá/phản hồi của đơn vị đó; KPI chọn/connected vẫn là kết quả của yêu cầu, không quy công cho supplier đang lọc (buyer có thể chọn đơn vị khác).
+
+Bộ lọc **Thật / Mô phỏng** không có lựa chọn trộn. Phiếu có is_demo, demo_key hoặc **bất kỳ** lượt phân cho supplier.is_demo đều thuộc nhóm mô phỏng, kể cả phân lẫn supplier thật và mẫu. Vì vậy báo giá supplier mẫu không làm tăng KPI thật. Supplier bị suspended sau khi phân vẫn giữ lịch sử trong KPI, nhưng không còn là ứng viên matching.
+
+### Demo và đối chiếu
+
+1. Áp dụng migration 006 bằng role operator; đăng nhập seller và khai báo danh mục `Trà`, khu vực `Hồ Chí Minh`, tối thiểu `5 hộp`, chuẩn bị `2` ngày, giá tham khảo `50 VND / hộp` cho một sản phẩm đang cung ứng của đơn vị approved. Có thể dùng các đơn vị mô phỏng từ seed trước; không tự seed phản hồi hay sửa dữ liệu thật.
+2. Buyer tạo nhu cầu cùng danh mục/tham chiếu, `10 hộp`, tỉnh/thành `Hồ Chí Minh`, ngân sách tổng `1000`, hạn sau 7 ngày. Admin thấy 100/100. Xóa số ngày chuẩn bị → Cần xác nhận; đổi giá thành 101 → vượt ngân sách; đổi thời gian thành 8 ngày → Bị loại. Khác đơn vị → Cần xác nhận; tạm ngưng đơn vị → không xuất hiện.
+3. Mở matching nhiều lần kiểm tra chưa có phân công; xác nhận phân, đọc snapshot. Seller đổi giá, snapshot cũ giữ nguyên. Có thể tiếp tục dùng phân thủ công bình thường.
+4. Tạo bốn nhu cầu trong cùng khoảng: R1 connected, R2 cancelled sau phân và từ chối, R3 closed_no_match chưa phân, R4 open chưa phân. R1 phân A lúc t0, B lúc t0+1h; A báo giá t0+2h và +4h, B báo giá +5h. R2 phân A lúc t0 và từ chối +1h. Đối chiếu: tạo 4, phân 2, có báo giá 1, tỷ lệ 50%, trung vị báo giá đầu theo lượt phân là median(2h, 4h) = 3h, selected 1, connected 1, hủy 1, không nguồn 1. A: phân 2/phản hồi 2/có báo giá 1/trung vị phản hồi 1.5h; B: 1/1/1/4h. Đây là fixture tự động, không nạp vào số liệu thật.
+5. Dashboard chọn ngày tạo, supplier và đúng loại dữ liệu. Chuyển buyer/seller hoặc gọi API trực tiếp phải bị chặn. Chưa có phân công hiển thị Chưa có dữ liệu cho tỷ lệ/thời gian.
+
+Kiểm thử dùng database test local riêng theo hướng dẫn trên:
+
+```powershell
+python -m unittest discover -s tests -p test_matching_metrics.py -v
+python -m unittest discover -s tests -p test_matching_dashboard_ui.py -v
+python -m unittest discover -s tests
+```

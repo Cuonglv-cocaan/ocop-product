@@ -23,8 +23,8 @@ def seed_request():
             raise ValueError('Cần buyer01 active với role buyer; không tự tạo hoặc đổi role tài khoản.')
         placeholders = ','.join(['%s'] * len(values))
         columns = ','.join(purchase.REQUEST_FIELDS)
-        row = connection.execute(f'''INSERT INTO business.purchase_requests(buyer_id,demo_key,{columns})
-            VALUES (%s,'ocop-demo-purchase-open',{placeholders}) ON CONFLICT(demo_key) DO NOTHING RETURNING id''',
+        row = connection.execute(f'''INSERT INTO business.purchase_requests(buyer_id,demo_key,is_demo,{columns})
+            VALUES (%s,'ocop-demo-purchase-open',TRUE,{placeholders}) ON CONFLICT(demo_key) DO NOTHING RETURNING id''',
             (buyer[0], *values)).fetchone()
         if row:
             purchase._event(connection, row[0], {'id': buyer[0]}, 'demo_seed', 'Operator tạo phiếu MÔ PHỎNG ở trạng thái mới; chưa phân công hoặc lựa chọn.')
