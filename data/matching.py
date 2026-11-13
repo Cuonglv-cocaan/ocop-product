@@ -68,7 +68,7 @@ def evaluate_product(request, product, *, as_of):
 
     price = product.get('reference_price')
     if request.get('budget') is None:
-        add('budget', 'not_applicable', 'Buyer không đặt ngân sách; không cộng điểm ngân sách.')
+        add('budget', 'not_applicable', 'Người mua không đặt ngân sách; không cộng điểm ngân sách.')
     elif price is None or normalized(product.get('reference_price_unit')) != normalized(request['unit']):
         add('budget', 'unknown', 'Thiếu giá tham khảo VND cùng đơn vị; không dùng giá catalog hay báo giá cũ.')
     else:
@@ -93,7 +93,7 @@ def rank_candidates(request, products, *, as_of=None):
         result = evaluate_product(request, product, as_of=as_of)
         entry = grouped.setdefault(product['supplier_id'], {
             'supplier_id': product['supplier_id'], 'supplier_name': product['supplier_name'],
-            'is_demo': product['is_demo'], 'products': []})
+            'products': []})
         entry['products'].append(result)
     for entry in grouped.values():
         entry['products'].sort(key=lambda p: (GROUPS[p['group']], -p['score'], p['source'], p['product_id']))
@@ -107,7 +107,7 @@ def candidates_in_connection(connection, request, supplier_id=None):
     # One SELECT gives a consistent read. Assignment already holds the supplier
     # lock used by save_product/stop_product/review, protecting its declarations.
     products = connection.cursor(row_factory=dict_row).execute('''SELECT p.*,s.name AS supplier_name,
-        s.status AS supplier_status,s.is_demo FROM business.supplier_products p
+        s.status AS supplier_status FROM business.supplier_products p
         JOIN business.suppliers s ON s.id=p.supplier_id
         WHERE s.status='approved' AND p.is_active
         AND (%s::bigint IS NULL OR s.id=%s) ORDER BY s.id,p.source,p.product_id''',

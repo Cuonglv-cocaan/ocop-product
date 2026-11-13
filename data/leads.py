@@ -44,6 +44,23 @@ def save_lead(kind, name, email, phone, note, *, session=None):
     return lead_id
 
 
+def save_guest_lead(kind, name, email, phone, note):
+    """Accept public enquiries; unowned records remain visible only to admins."""
+    if kind not in ('Nhu cầu mua hàng', 'Nhờ tìm sản phẩm'):
+        raise ValueError('Vui lòng chọn loại yêu cầu hợp lệ.')
+    name, email, phone, note = (str(v or '').strip() for v in (name, email, phone, note))
+    if not name or not note or not (email or phone):
+        raise ValueError('Nhập tên, nội dung và ít nhất email hoặc số điện thoại.')
+    if email and ('@' not in email or '.' not in email.rsplit('@', 1)[-1]):
+        raise ValueError('Email chưa đúng định dạng.')
+    if any(len(v) > limit for v, limit in ((name, 200), (email, 254), (phone, 30), (note, 5000))):
+        raise ValueError('Thông tin vượt quá độ dài cho phép.')
+    with _operation() as connection:
+        row = connection.execute('''INSERT INTO business.leads(kind,name,email,phone,note,user_id)
+            VALUES (%s,%s,%s,%s,%s,NULL) RETURNING id''', (kind, name, email, phone, note)).fetchone()
+    return row[0]
+
+
 def read_leads(session, lead_id=None):
     with _operation() as connection:
         actor = auth.require_user(connection, session, {'buyer', 'seller', 'admin'})

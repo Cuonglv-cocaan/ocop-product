@@ -32,11 +32,11 @@ class AdminMatchingDashboardUITests(unittest.TestCase):
             app = AppTest.from_string('from src.dashboard_ui import page\npage()').run()
             self.assertFalse(app.exception)
             self.assertEqual([m.value for m in app.metric][-2:], ['Chưa có dữ liệu', 'Chưa có dữ liệu'])
-            self.assertFalse(dashboard.call_args.kwargs['demo'])
-            app.selectbox[0].select(True)
-            app.selectbox[1].select(1).run()
+            self.assertEqual([w.label for w in app.selectbox], ['Nhà cung cấp'])
+            self.assertEqual(dashboard.call_args.kwargs, dict(supplier_id=None))
+            app.selectbox[0].select(1).run()
             self.assertFalse(app.exception)
-            self.assertEqual(dashboard.call_args.kwargs, dict(supplier_id=1, demo=True))
+            self.assertEqual(dashboard.call_args.kwargs, dict(supplier_id=1))
 
     def test_matching_display_is_read_only_and_requires_confirmation(self):
         candidate = dict(supplier_id=1, supplier_name='A', is_demo=False, score=75,

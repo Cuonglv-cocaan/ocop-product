@@ -169,6 +169,7 @@ class PurchaseIntegrationTests(unittest.TestCase):
         detail = purchase.request_detail(self.buyer1, request_id)
         self.assertEqual(detail['matches'][0]['status'], 'declined')
         self.assertEqual(detail['quotes'][0]['status'], 'superseded')
+        self.assertEqual(detail['request']['status'], 'assigned')
         with self.assertRaises(ValueError):
             purchase.select_quote(self.buyer1, request_id, first)
         self.quote(request_id, match)
@@ -225,6 +226,21 @@ class PurchaseIntegrationTests(unittest.TestCase):
 
 
 class DecimalTests(unittest.TestCase):
+    def test_cannot_choose_quote_with_past_delivery_even_if_still_valid(self):
+        actor = {'id': 1, 'role': 'buyer'}
+        row = dict(id=1, buyer_id=1, status='quoted', selected_quote_id=None,
+                   delivery_deadline=purchase.today() + timedelta(days=7))
+        quote = dict(id=2, status='active', valid_until=datetime.now(purchase.ZONE) + timedelta(days=1),
+                     expected_delivery=purchase.today() - timedelta(days=1))
+        with patch('data.postgres.transaction') as transaction, \
+                patch('data.auth.require_user', return_value=actor), \
+                patch('data.purchase._request', return_value=row), \
+                patch('data.purchase._cursor') as cursor:
+            cursor.return_value.execute.return_value.fetchone.return_value = quote
+            with self.assertRaisesRegex(ValueError, 'Ngày giao'):
+                purchase.select_quote(object(), 1, 2)
+            transaction.return_value.__enter__.return_value.execute.assert_not_called()
+
     def test_decimal_limits_and_float_rejection(self):
         self.assertEqual(purchase.number('0'), Decimal('0.00'))
         self.assertEqual(purchase.number('1.234', 3), Decimal('1.234'))

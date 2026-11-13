@@ -13,6 +13,7 @@ class SupplierUITests(unittest.TestCase):
         row.update(source='TIKI', product_id='001', product_name='Tea')
         products = pd.DataFrame(columns=COLUMNS) if empty else pd.DataFrame([row])
         mocks = [patch('data.database.read_products', return_value=products),
+                 patch('data.leads.read_leads', return_value=[]),
                  patch('data.auth.current_user', return_value={'id': 1, 'username': 'demo', 'role': role})]
         for mock in mocks:
             mock.start()
@@ -32,13 +33,20 @@ class SupplierUITests(unittest.TestCase):
                 patch('data.suppliers.create_application', return_value=7) as create:
             app = self.app('buyer').run(timeout=20)
             self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['page'], 'Đăng ký cung cấp')
+            self.assertEqual([h.value for h in app.title], ['Đăng ký cung cấp'])
+            self.assertFalse(any(w.label == 'Khu vực giao hàng' for w in app.text_area))
             next(w for w in app.text_input if w.label == 'Tên đơn vị *').set_value('My unit')
+            next(w for w in app.selectbox if w.label == 'Loại đơn vị').select('Hợp tác xã')
+            next(w for w in app.selectbox if w.label == 'Tỉnh / thành').select('Hà Nội')
             next(b for b in app.button if b.label == 'Gửi hồ sơ đăng ký').click().run()
             self.assertFalse(app.exception)
             self.assertTrue(any('#7' in result.value for result in app.success))
             fields = create.call_args.args[1]
             self.assertEqual(fields['name'], 'My unit')
-            self.assertEqual(fields['province'], '')
+            self.assertEqual(fields['province'], 'Hà Nội')
+            self.assertEqual(fields['entity_type'], 'Hợp tác xã')
+            self.assertEqual(fields['delivery_areas'], '')
             self.assertNotIn('status', fields)
 
     def test_history_available_with_empty_catalog(self):
@@ -51,6 +59,8 @@ class SupplierUITests(unittest.TestCase):
                 patch('data.suppliers.catalog_items', return_value=[]):
             app = self.app('seller', empty=True).run(timeout=20)
             self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['page'], 'Quản lý cung ứng')
+            self.assertEqual([t.label for t in app.tabs], ['Hồ sơ đơn vị', 'Sản phẩm cung ứng'])
             content = '\n'.join(w.value for w in app.markdown)
             self.assertIn('Sản phẩm không còn trong catalog', content)
             self.assertIn('Chưa cập nhật', content)
@@ -62,9 +72,16 @@ class SupplierUITests(unittest.TestCase):
                 patch('data.suppliers.list_products', return_value=[]), \
                 patch('data.auth.require_user', return_value={'id': 1, 'role': 'admin'}), \
                 patch('data.postgres.transaction') as transaction, \
+                patch('data.purchase.list_requests', return_value=[]), \
+                patch('data.leads.read_leads', return_value=[]), \
+                patch('data.accounts.list_accounts', return_value=[]), \
                 patch('data.suppliers.review_application') as review:
             app = self.app('admin').run(timeout=20)
             self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['page'], 'Quản trị')
+            self.assertEqual([h.value for h in app.title], ['Quản trị'])
+            self.assertEqual([t.label for t in app.tabs],
+                             ['Nhu cầu mua hàng', 'Yêu cầu & tài khoản', 'Duyệt nhà cung cấp'])
             next(b for b in app.button if b.label == 'Xác nhận quyết định').click().run()
             self.assertFalse(app.exception)
             self.assertEqual(review.call_args.args[1:3], (1, 'approved'))

@@ -11,6 +11,24 @@ from data import auth, leads, postgres, sqlite_leads
 
 
 class LeadTests(unittest.TestCase):
+    def test_guest_submission_is_unowned_and_does_not_require_login(self):
+        connection = MagicMock()
+        connection.execute.return_value.fetchone.return_value = (42,)
+        with patch('data.leads._operation') as operation, \
+                patch('data.auth.require_user', side_effect=AssertionError('Guest has no session')):
+            operation.return_value.__enter__.return_value = connection
+            self.assertEqual(leads.save_guest_lead('Nhu cầu mua hàng', ' Guest ', '', '0123', ' Tea '), 42)
+            sql, params = connection.execute.call_args.args
+            self.assertIn('NULL', sql)
+            self.assertEqual(params, ('Nhu cầu mua hàng', 'Guest', '', '0123', 'Tea'))
+
+    def test_guest_validation_rejects_missing_contact_and_invalid_kind(self):
+        with patch('data.leads._operation', side_effect=AssertionError('Invalid input must not reach storage')):
+            for kind, email, phone in [('Nhu cầu mua hàng', '', ''), ('invalid', '', '0123'),
+                                       ('Nhờ tìm sản phẩm', 'bad-email', '')]:
+                with self.assertRaises(ValueError):
+                    leads.save_guest_lead(kind, 'Guest', email, phone, 'Tea')
+
     def setUp(self):
         actor = patch('data.auth.require_user', return_value={'id': 1, 'role': 'buyer'})
         actor.start()

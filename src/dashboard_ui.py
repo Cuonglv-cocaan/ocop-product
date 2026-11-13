@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import psycopg
 import streamlit as st
 from data import auth, metrics, postgres, suppliers
+from src.ui_labels import time_label
 
 
 def page():
@@ -12,23 +13,20 @@ def page():
         # Authorize before rendering filters, supplier names or any business data.
         with postgres.transaction() as connection:
             auth.require_user(connection, session, {'admin'})
-        st.header('Hiệu quả kết nối')
+        st.title('Hiệu quả kết nối')
         today = datetime.now(metrics.ZONE).date()
-        start = st.date_input('Yêu cầu tạo từ ngày', value=today - timedelta(days=30))
-        end = st.date_input('Đến hết ngày', value=today)
-        demo = st.selectbox('Loại dữ liệu', options=[False, True],
-                            format_func=lambda v: 'Mô phỏng' if v else 'Thật')
+        start = st.date_input('Yêu cầu tạo từ ngày', format='DD/MM/YYYY', value=today - timedelta(days=30))
+        end = st.date_input('Đến hết ngày', format='DD/MM/YYYY', value=today)
         units = suppliers.list_suppliers(session, admin=True)
         names = {None: 'Tất cả nhà cung cấp', **{s['id']: s['name'] for s in units}}
         supplier_id = st.selectbox('Nhà cung cấp', options=list(names), format_func=names.get)
-        result = metrics.dashboard(session, start, end, supplier_id=supplier_id, demo=demo)
+        result = metrics.dashboard(session, start, end, supplier_id=supplier_id)
         st.caption('Nhóm yêu cầu theo ngày tạo tại Asia/Ho_Chi_Minh; kết quả phản ánh trạng thái đến '
-                   + result['viewed_at'].astimezone(metrics.ZONE).isoformat())
+                   + time_label(result['viewed_at']))
         st.caption('Lọc nhà cung cấp: chỉ các yêu cầu từng phân cho đơn vị đó; báo giá/phản hồi tính riêng lượt phân của đơn vị. '
-                   'Chọn báo giá/kết nối là kết quả của yêu cầu, không quy công cho đơn vị đang lọc. '
-                   'Yêu cầu mô phỏng hoặc từng phân cho nhà cung cấp mô phỏng đều thuộc nhóm mô phỏng.')
+                   'Chọn báo giá/kết nối là kết quả của yêu cầu, không quy công cho đơn vị đang lọc.')
         labels = {'created': 'Yêu cầu được tạo', 'assigned': 'Yêu cầu đã phân',
-                  'selected': 'Yêu cầu buyer đã chọn báo giá', 'connected': 'Buyer xác nhận đã kết nối',
+                  'selected': 'Yêu cầu người mua đã chọn báo giá', 'connected': 'Người mua xác nhận đã kết nối',
                   'cancelled': 'Yêu cầu đã hủy', 'closed_no_match': 'Đóng không tìm được nguồn'}
         for key, label in labels.items():
             st.metric(label, result[key])

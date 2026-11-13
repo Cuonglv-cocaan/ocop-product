@@ -96,17 +96,16 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual((filtered['created'], filtered['assigned'], filtered['quote_rate'], filtered['median_first_quote_hours']),
                          (1, 1, 1, 4))
 
-    def test_empty_and_simulated_data_never_mix(self):
+    def test_empty_and_all_records_included_regardless_of_legacy_flags(self):
         result = metrics.summarize([], [], [], [])
         self.assertIsNone(result['quote_rate'])
         self.assertIsNone(result['median_first_quote_hours'])
         self.matches[1]['supplier_is_demo'] = True
-        real = metrics.summarize(self.requests, self.matches, self.quotes, self.events)
-        demo = metrics.summarize(self.requests, self.matches, self.quotes, self.events, demo=True)
-        self.assertEqual((real['created'], real['quoted_requests']), (3, 0))
-        self.assertEqual((demo['created'], demo['quoted_requests']), (1, 1))
         self.requests[3]['is_demo'] = True
-        self.assertEqual(metrics.summarize(self.requests, self.matches, self.quotes, self.events, demo=True)['created'], 2)
+        result = metrics.summarize(self.requests, self.matches, self.quotes, self.events)
+        self.assertEqual((result['created'], result['quoted_requests']), (4, 1))
+        filtered = metrics.summarize(self.requests, self.matches, self.quotes, self.events, supplier_id=2)
+        self.assertEqual((filtered['created'], filtered['quoted_requests']), (1, 1))
 
     def test_first_decline_remains_first_response_after_quote_versions(self):
         self.events.append(dict(request_id=1, match_id=1, event_type='declined',

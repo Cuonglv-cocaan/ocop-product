@@ -428,10 +428,23 @@ Buyer so sánh các phiên bản, số lượng, giá, tổng, phí chưa gồm,
 
 Không tự đóng khi hết ngày; khi đã quá hạn giao, API chặn phân công/báo giá/lựa chọn và cho buyer/admin hủy hoặc đóng theo quy tắc. Không có trạng thái tự mở lại. request_events lưu actor_id, thời gian, loại và nội dung, bao gồm tạo/sửa/phân/quote/từ chối/chọn/đóng; seller chỉ đọc event của phân công thuộc đơn vị mình. Trạng thái và lịch sử cập nhật cùng transaction.
 
+### Giao diện quản lý nhu cầu
+
+- Khách: **Nhu cầu mua hàng**, gửi nhu cầu hoặc nhờ tìm sản phẩm; cần tên và ít nhất email hoặc điện thoại. Admin tiếp nhận tại tab **Yêu cầu & tài khoản**. Đây là yêu cầu liên hệ, chưa phải phiếu có báo giá.
+- Người mua: **Nhu cầu mua hàng** mặc định hiển thị danh sách. Nút **Tạo nhu cầu** mở vùng nhập riêng, có nút quay lại; tạo thành công trở về danh sách và ưu tiên phiếu mới. Khi đi từ sản phẩm, form tự mở với thông tin tham chiếu. Người mua có thể lọc/tìm phiếu, so sánh báo giá và xác nhận kết nối. Yêu cầu liên hệ cũ nằm trong phần thu gọn của danh sách.
+- Seller: **Yêu cầu báo giá** để phản hồi phân công; **Quản lý cung ứng** để quản lý hồ sơ và sản phẩm. Bản nháp báo giá tách theo phiếu và đơn vị.
+- Admin: **Quản trị** gồm ba tab **Nhu cầu mua hàng**, **Yêu cầu & tài khoản**, **Duyệt nhà cung cấp**.
+
+Tổng quan seller có ba KPI, tính trên các phiếu được phân cho đơn vị đã duyệt mà seller là thành viên, trước bộ lọc: **Yêu cầu được phân** gồm mọi trạng thái; **Đang tiếp nhận báo giá** gồm `assigned`/`quoted` chưa quá hạn giao; **Đã chọn / kết nối** gồm trạng thái hiện tại `selected`/`connected`, không gồm phiếu đã hủy. KPI thứ ba là kết quả của phiếu, không khẳng định đơn vị của seller được chọn và không phải số đơn hàng. Khi không có phiếu, cả ba KPI hiển thị 0.
+
+Báo giá chỉ được chọn khi còn hiệu lực, ngày giao vẫn từ hôm nay đến hạn giao của phiếu và nhà cung cấp còn được duyệt. Khi seller rút báo giá cuối cùng, phiếu trở về `assigned`; lịch sử báo giá vẫn giữ nguyên. Phiếu quá hạn không nhận phân công hoặc báo giá mới. Đóng/hủy phiếu cần xác nhận trên giao diện.
+
+Số hiển thị theo định dạng Việt Nam; ô nhập số dùng dấu chấm cho phần thập phân và không dùng dấu phân cách hàng nghìn (ví dụ nhập `1000`, `1.5`).
+
 ### Kịch bản demo và kiểm thử
 
 1. Buyer01 tạo nhu cầu (hoặc dùng phiếu mô phỏng open), xác nhận số lượng/đơn vị/địa điểm/hạn giao và liên hệ riêng. Buyer02 không đọc/sửa/chọn hộ phiếu này.
-2. Admin01 vào Nhu cầu, phân đơn vị A và B đã approved. Phân trùng bị chặn; lúc này buyer không sửa điều kiện được.
+2. Admin01 vào Quản trị → Nhu cầu mua hàng, phân đơn vị A và B đã approved. Phân trùng bị chặn; lúc này buyer không sửa điều kiện được.
 3. Seller01 chỉ thấy phân công A, nhập báo giá cùng đơn vị tính; thử gửi lại để xem phiên bản cũ superseded. Seller02 có thể báo giá B hoặc từ chối có lý do. Hai seller chưa xem liên hệ buyer hoặc báo giá của nhau.
 4. Buyer01 so sánh và chọn đúng một báo giá còn hiệu lực, đọc cảnh báo chưa phải đơn hàng. Chỉ nhà cung cấp được chọn mở được liên hệ buyer.
 5. Buyer01 xác nhận đã kết nối để trao đổi. Sau connected mọi thao tác thay đổi nghiệp vụ bị chặn. Có thể dùng phiếu khác để thử hủy hoặc đóng không có phương án.
@@ -492,7 +505,7 @@ Trang **Hiệu quả kết nối** và API `data.metrics.dashboard` chỉ admin.
 
 Mẫu số 0 hoặc không có khoảng thời gian hợp lệ: **Chưa có dữ liệu**, không hiện 0% hay thời gian 0 giả. Các số lượng thực sự bằng 0 vẫn hiển thị 0. Một yêu cầu phân hai đơn vị và có ba phiên bản báo giá vẫn chỉ tính một yêu cầu đã phân/có báo giá. Lọc supplier thu hẹp nhóm tới yêu cầu từng phân cho supplier đó và chỉ xét lượt phân/báo giá/phản hồi của đơn vị đó; KPI chọn/connected vẫn là kết quả của yêu cầu, không quy công cho supplier đang lọc (buyer có thể chọn đơn vị khác).
 
-Bộ lọc **Thật / Mô phỏng** không có lựa chọn trộn. Phiếu có is_demo, demo_key hoặc **bất kỳ** lượt phân cho supplier.is_demo đều thuộc nhóm mô phỏng, kể cả phân lẫn supplier thật và mẫu. Vì vậy báo giá supplier mẫu không làm tăng KPI thật. Supplier bị suspended sau khi phân vẫn giữ lịch sử trong KPI, nhưng không còn là ứng viên matching.
+Dashboard thống kê tất cả yêu cầu trong khoảng ngày tạo đã chọn, có thể lọc theo nhà cung cấp. Không có bộ lọc hoặc phân nhóm theo loại dữ liệu. Các cờ `is_demo` và `demo_key` trong schema cũ được giữ để tương thích migration và công cụ tạo dữ liệu mẫu, không dùng để loại yêu cầu khỏi thống kê. Supplier bị suspended sau khi phân vẫn giữ lịch sử trong KPI, nhưng không còn là ứng viên matching.
 
 ### Demo và đối chiếu
 

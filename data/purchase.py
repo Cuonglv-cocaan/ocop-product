@@ -104,7 +104,7 @@ def _request(connection, actor, request_id):
 
 def _owner(actor, row):
     if actor['role'] != 'buyer' or actor['id'] != row['buyer_id']:
-        raise auth.AccessDenied('Chỉ buyer chủ sở hữu được thực hiện thao tác này.')
+        raise auth.AccessDenied('Chỉ người mua chủ sở hữu được thực hiện thao tác này.')
 
 
 def _accepting(row):
@@ -122,7 +122,7 @@ def create_request(session, fields):
         placeholders = ','.join(['%s'] * len(values))
         request_id = connection.execute(f'''INSERT INTO business.purchase_requests(buyer_id,{columns})
             VALUES (%s,{placeholders}) RETURNING id''', (actor['id'], *values)).fetchone()[0]
-        _event(connection, request_id, actor, 'created', 'Buyer tạo phiếu nhu cầu.')
+        _event(connection, request_id, actor, 'created', 'Người mua tạo phiếu nhu cầu.')
     return request_id
 
 
@@ -138,7 +138,7 @@ def edit_request(session, request_id, fields):
         assignments = ','.join(f'{field}=%s' for field in REQUEST_FIELDS)
         connection.execute(f'UPDATE business.purchase_requests SET {assignments},updated_at=CURRENT_TIMESTAMP WHERE id=%s',
                            (*values, request_id))
-        _event(connection, request_id, actor, 'edited', 'Buyer cập nhật phiếu trước khi phân công.')
+        _event(connection, request_id, actor, 'edited', 'Người mua cập nhật phiếu trước khi phân công.')
 
 
 def assign_supplier(session, request_id, supplier_id, *, use_matching=False):
@@ -243,7 +243,10 @@ def decline_request(session, request_id, match_id, reason):
         _match(connection, actor, row, match_id)
         connection.execute("UPDATE business.request_quotes SET status='superseded' WHERE match_id=%s AND status='active'", (match_id,))
         connection.execute("UPDATE business.request_matches SET status='declined',decline_reason=%s WHERE id=%s", (reason.strip(), match_id))
-        connection.execute('UPDATE business.purchase_requests SET updated_at=CURRENT_TIMESTAMP WHERE id=%s', (request_id,))
+        connection.execute('''UPDATE business.purchase_requests SET
+            status=CASE WHEN EXISTS (SELECT 1 FROM business.request_quotes
+                WHERE request_id=%s AND status='active') THEN 'quoted' ELSE 'assigned' END,
+            updated_at=CURRENT_TIMESTAMP WHERE id=%s''', (request_id, request_id))
         _event(connection, request_id, actor, 'declined', reason.strip(), match_id)
 
 
@@ -260,6 +263,8 @@ def select_quote(session, request_id, quote_id):
             (request_id, quote_id)).fetchone()
         if not quote or quote['status'] != 'active' or quote['valid_until'] <= datetime.now(ZONE):
             raise ValueError('Báo giá không hợp lệ, đã thay thế hoặc hết hạn.')
+        if quote['expected_delivery'] < today() or quote['expected_delivery'] > row['delivery_deadline']:
+            raise ValueError('Ngày giao của báo giá không còn phù hợp. Vui lòng yêu cầu báo giá mới.')
         supplier = _cursor(connection).execute('SELECT * FROM business.suppliers WHERE id=%s FOR UPDATE',
                                               (quote['supplier_id'],)).fetchone()
         if supplier['status'] != 'approved':
@@ -269,7 +274,7 @@ def select_quote(session, request_id, quote_id):
         connection.execute("UPDATE business.request_quotes SET status='selected' WHERE id=%s", (quote_id,))
         connection.execute("UPDATE business.request_matches SET status='selected' WHERE id=%s", (quote['match_id'],))
         connection.execute("UPDATE business.purchase_requests SET status='selected',selected_quote_id=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s", (quote_id, request_id))
-        _event(connection, request_id, actor, 'selected', 'Buyer chọn phương án để tiếp tục trao đổi; chưa phải đơn hàng hay giao dịch thành công.', quote['match_id'])
+        _event(connection, request_id, actor, 'selected', 'Người mua chọn phương án để tiếp tục trao đổi; chưa phải đơn hàng hay giao dịch thành công.', quote['match_id'])
 
 
 def close_request(session, request_id, status):
@@ -285,7 +290,7 @@ def close_request(session, request_id, status):
         if row['status'] not in allowed[status]:
             raise ValueError('Không cho phép chuyển trạng thái này.')
         connection.execute('UPDATE business.purchase_requests SET status=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s', (status, request_id))
-        _event(connection, request_id, actor, status, {'connected': 'Buyer xác nhận đã kết nối để trao đổi, không xác nhận thanh toán hoặc giao dịch.',
+        _event(connection, request_id, actor, status, {'connected': 'Người mua xác nhận đã kết nối để trao đổi, không xác nhận thanh toán hoặc giao dịch.',
                'cancelled': 'Phiếu đã bị hủy.', 'closed_no_match': 'Đóng phiếu do không có phương án phù hợp.'}[status])
 
 
@@ -320,7 +325,8 @@ def request_detail(session, request_id):
             visible_suppliers = {m[0] for m in memberships}
             matches = [m for m in matches if m['supplier_id'] in visible_suppliers]
         match_ids = [m['id'] for m in matches]
-        quotes = _cursor(connection).execute('''SELECT q.*,m.supplier_id,s.name AS supplier_name
+        quotes = _cursor(connection).execute('''SELECT q.*,m.supplier_id,s.name AS supplier_name,
+            s.status AS supplier_status
             FROM business.request_quotes q JOIN business.request_matches m ON m.id=q.match_id
             JOIN business.suppliers s ON s.id=m.supplier_id
             WHERE q.request_id=%s AND q.match_id=ANY(%s) ORDER BY q.match_id,q.version''',

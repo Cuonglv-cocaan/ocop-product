@@ -13,16 +13,13 @@ def _hours(start, end):
     return (end - start).total_seconds() / 3600
 
 
-def summarize(requests, matches, quotes, events, *, supplier_id=None, demo=False):
+def summarize(requests, matches, quotes, events, *, supplier_id=None):
     """Inputs are a creation-date cohort plus all its records through viewing time.
 
-    A request involving ANY demo supplier is simulated, including mixed assignments.
     Supplier filter narrows cohort to requests assigned to it and measures only its
     assignments/quotes; selected/connected remain request outcomes, not attribution.
     """
-    demo_requests = {m['request_id'] for m in matches if m['supplier_is_demo']}
-    cohort = {r['id']: r for r in requests
-              if bool(r['is_demo'] or r.get('demo_key') or r['id'] in demo_requests) == demo}
+    cohort = {r['id']: r for r in requests}
     if supplier_id is not None:
         assigned_to = {m['request_id'] for m in matches if m['supplier_id'] == supplier_id}
         cohort = {rid: r for rid, r in cohort.items() if rid in assigned_to}
@@ -68,11 +65,9 @@ def summarize(requests, matches, quotes, events, *, supplier_id=None, demo=False
             'suppliers': supplier_rows}
 
 
-def dashboard(session, start_date, end_date, *, supplier_id=None, demo=False):
+def dashboard(session, start_date, end_date, *, supplier_id=None):
     if start_date > end_date:
         raise ValueError('Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.')
-    if not isinstance(demo, bool):
-        raise ValueError('Phải chọn riêng dữ liệu thật hoặc mô phỏng.')
     start = datetime.combine(start_date, time.min, ZONE)
     end = datetime.combine(end_date + timedelta(days=1), time.min, ZONE)
     with postgres.transaction() as connection:
@@ -81,16 +76,16 @@ def dashboard(session, start_date, end_date, *, supplier_id=None, demo=False):
         auth.require_user(connection, session, {'admin'})
         cursor = connection.cursor(row_factory=dict_row)
         viewed_at = cursor.execute('SELECT CURRENT_TIMESTAMP AS at').fetchone()['at']
-        requests = cursor.execute('''SELECT id,status,is_demo,demo_key,selected_quote_id
+        requests = cursor.execute('''SELECT id,status,selected_quote_id
             FROM business.purchase_requests WHERE created_at >= %s AND created_at < %s''', (start, end)).fetchall()
         ids = [r['id'] for r in requests]
-        matches = cursor.execute('''SELECT m.*,s.name AS supplier_name,s.is_demo AS supplier_is_demo
+        matches = cursor.execute('''SELECT m.*,s.name AS supplier_name
             FROM business.request_matches m JOIN business.suppliers s ON s.id=m.supplier_id
             WHERE m.request_id=ANY(%s)''', (ids,)).fetchall()
         quotes = cursor.execute('''SELECT request_id,match_id,created_at FROM business.request_quotes
             WHERE request_id=ANY(%s)''', (ids,)).fetchall()
         events = cursor.execute('''SELECT request_id,match_id,event_type,created_at FROM business.request_events
             WHERE request_id=ANY(%s)''', (ids,)).fetchall()
-    result = summarize(requests, matches, quotes, events, supplier_id=supplier_id, demo=demo)
+    result = summarize(requests, matches, quotes, events, supplier_id=supplier_id)
     result['viewed_at'] = viewed_at
     return result
