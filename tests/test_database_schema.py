@@ -1,4 +1,5 @@
 import tempfile
+import os
 import sqlite3
 from contextlib import closing
 import unittest
@@ -9,6 +10,7 @@ import duckdb
 import pandas as pd
 
 from data import database as db
+from data import sqlite_leads
 
 
 class SchemaTests(unittest.TestCase):
@@ -37,10 +39,13 @@ class SchemaTests(unittest.TestCase):
             db.export_catalog(db.DUCKDB_PATH)
 
     def setUp(self):
+        backend = patch.dict(os.environ, {'LEADS_BACKEND': 'sqlite'})
+        backend.start()
+        self.addCleanup(backend.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         override = patch.object(db, "DUCKDB_PATH", Path(self.temp.name) / "test.duckdb")
-        leads_override = patch.object(db, "SQLITE_LEADS_PATH", Path(self.temp.name) / "leads.sqlite3")
+        leads_override = patch.object(sqlite_leads, "SQLITE_LEADS_PATH", Path(self.temp.name) / "leads.sqlite3")
         leads_override.start()
         self.addCleanup(leads_override.stop)
         override.start()
@@ -69,11 +74,11 @@ class SchemaTests(unittest.TestCase):
 
     def test_upgrade_preserves_rows_and_lead_sequence(self):
         self.legacy_products()
-        first = db.save_lead("test", "Test", "test@example.com", "0", "Test")
+        first = sqlite_leads.save_lead("test", "Test", "test@example.com", "0", "Test")
         self.assertEqual(db.upgrade_products_schema(), 1)
         self.assertEqual(db.upgrade_products_schema(), 1)
         self.assertEqual(db.read_products().iloc[0]["product_id"], "001")
-        self.assertEqual(db.save_lead("test", "Test", "test@example.com", "0", "Test"), first + 1)
+        self.assertEqual(sqlite_leads.save_lead("test", "Test", "test@example.com", "0", "Test"), first + 1)
 
     def test_invalid_legacy_data_rolls_back(self):
         self.legacy_products(source="tiki")
@@ -85,7 +90,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_leads_never_open_duckdb(self):
         with patch.object(db, "connect", side_effect=AssertionError("DuckDB must not be opened")):
-            lead_id = db.save_lead("buyer", " Name ", "a@example.com", "0", " Note ")
+            lead_id = sqlite_leads.save_lead("buyer", " Name ", "a@example.com", "0", " Note ")
         with closing(db.connect_leads()) as conn:
             self.assertEqual(conn.execute("SELECT name, note FROM leads WHERE id=?", [lead_id]).fetchone(), ("Name", "Note"))
         self.assertFalse(db.DUCKDB_PATH.exists())
@@ -109,7 +114,7 @@ class SchemaTests(unittest.TestCase):
         db.upsert_products(pd.DataFrame([dict(source="TIKI", product_id="001", product_name="Tea")]))
         with patch.object(db, "DUCKDB_READ_ONLY", True):
             self.assertEqual(len(db.read_products()), 1)
-            self.assertGreater(db.save_lead("buyer", "Name", "a@example.com", "0", "Note"), 0)
+            self.assertGreater(sqlite_leads.save_lead("buyer", "Name", "a@example.com", "0", "Note"), 0)
 
 
 if __name__ == "__main__":
