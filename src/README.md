@@ -9,7 +9,7 @@ cd src
 python -m streamlit run app.py
 ```
 
-Ứng dụng đọc sản phẩm/embeddings từ DuckDB; yêu cầu liên hệ lưu riêng vào SQLite qua SQLITE_LEADS_PATH (mặc định data/leads.sqlite3). Đường dẫn mặc định là `data/ocop.duckdb`, cấu hình qua `DUCKDB_PATH` trong `.env` ở gốc dự án. Đường dẫn tương đối tính từ gốc dự án.
+Ứng dụng đọc sản phẩm/embeddings từ DuckDB; tài khoản và yêu cầu có chủ sở hữu lưu trong PostgreSQL/Supabase. SQLite cũ giữ làm nguồn migration. Đường dẫn catalog mặc định là `data/ocop.duckdb`, cấu hình qua `DUCKDB_PATH` trong `.env` ở gốc dự án. Đường dẫn tương đối tính từ gốc dự án.
 
 Ứng dụng hỗ trợ tìm kiếm, lọc, xem chi tiết sản phẩm, khám phá theo tỉnh và mở gian hàng nguồn. Biểu mẫu kết nối lưu dữ liệu, chưa tự gửi email. Sao OCOP và xuất xứ chưa được hệ thống tự xác minh.
 
@@ -26,3 +26,15 @@ Giá thiếu hoặc không hợp lệ hiển thị “Giá chưa cập nhật”
 Chạy kiểm thử từ gốc dự án: `python -m unittest discover -s tests`. Kiểm thử dùng database tạm và embeddings giả, không gọi Gemini hoặc crawl trang thật.
 
 Triển khai Community Cloud: xem hướng dẫn catalog sạch và DUCKDB_READ_ONLY trong README gốc. SQLite cục bộ không được bảo đảm lưu bền vững trên cloud.
+
+
+PostgreSQL/Supabase và migration: xem mục tương ứng trong [README dự án](../README.md). Leads đi qua data/leads.py; thao tác có đăng nhập yêu cầu LEADS_BACKEND=postgres, DATABASE_URL và schema đã migration. Không fallback SQLite khi lỗi. Catalog/embeddings tiếp tục dùng DuckDB.
+
+
+Bước 4: đăng nhập nội bộ và yêu cầu có chủ sở hữu dùng PostgreSQL với LEADS_BACKEND=postgres. Khách vẫn xem và tìm kiếm; xem README gốc để chạy migration 003 và seed thủ công bằng prompt mật khẩu. SQLite chỉ còn là nguồn legacy, không dùng cho form có đăng nhập. Không dùng Supabase Auth hoặc Google/OIDC.
+
+
+Hồ sơ nhà cung cấp: migration 004, seed riêng bằng python -m data.seed_suppliers. Buyer/seller đăng ký tại Nhà cung cấp; admin duyệt tại Duyệt nhà cung cấp. Cung ứng cần role seller + membership + approved; xem README gốc để biết quy trình và test. Không tự chạy migration/seed trên Supabase thật.
+
+
+Luồng mua hàng: trang Nhu cầu, migration 005 và seed mô phỏng riêng python -m data.seed_purchase. Buyer tạo phiếu, admin phân supplier approved, seller báo giá theo membership, buyer chọn/xác nhận kết nối. Không thay leads cũ. Xem README gốc về quyền, liên hệ, số tiền, trạng thái và test. Không tự chạy migration/seed trên database thật.

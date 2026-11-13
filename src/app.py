@@ -1,7 +1,7 @@
 """OCOP Connect — Streamlit demo portal.
 
 Run: streamlit run app.py
-Products: DuckDB; leads: SQLite.
+Products: DuckDB; leads: configurable business storage.
 """
 from __future__ import annotations
 
@@ -17,11 +17,17 @@ from urllib.parse import urlparse
 
 import pandas as pd
 import streamlit as st
-import sqlite3
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR.parent))
-from data.database import DUCKDB_PATH, read_products, save_lead
+from data.database import DUCKDB_PATH, read_products
+from data.leads import save_lead, LeadStorageError
+from data import auth
+from src.ui_labels import role_label
+from src import auth_ui
+from src import supplier_ui
+from src import purchase_ui
+from src import dashboard_ui
 from src import search as search_module
 
 # Streamlit can retain an imported module while rerunning the edited app.
@@ -76,18 +82,18 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 .st-key-site_header [data-testid="stColumn"] {min-width:0;}
 .st-key-site_header [data-testid="stVerticalBlock"] {gap:0;justify-content:center;}
 .st-key-site_header .logo-link {display:flex;flex-direction:column;justify-content:center;width:fit-content;}
-.st-key-site_header [data-testid="stSegmentedControl"] {margin:0;}
-.st-key-site_header [data-testid="stSegmentedControl"] [data-baseweb="button-group"] {width:100%;display:flex;align-items:stretch;}
-.st-key-site_header [data-testid="stSegmentedControl"] button {flex:1 1 0;min-width:0;min-height:44px;padding:8px 12px;}
-.st-key-site_header [data-testid="stSegmentedControl"] button p {white-space:nowrap;font-size:13px;line-height:1.4;}
+.st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) {margin:0;min-width:0;max-width:100%;}
+.st-key-site_header :is([data-baseweb="button-group"], [data-testid="stButtonGroupFlex"]) {width:100%;display:flex;flex-wrap:wrap;align-items:stretch;gap:4px;}
+.st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button {flex:1 1 auto;min-width:0;max-width:100%;height:auto;min-height:44px;padding:8px 12px;}
+.st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button p {white-space:normal;overflow-wrap:anywhere;font-size:13px;line-height:1.4;}
 @media(max-width:900px){
     .st-key-site_header [data-testid="stHorizontalBlock"] {flex-wrap:wrap;gap:1rem;}
     .st-key-site_header [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}
     .st-key-site_header .logo-link {margin-inline:auto;text-align:center;}
 }
 @media(max-width:480px){
-    .st-key-site_header [data-testid="stSegmentedControl"] [data-baseweb="button-group"] {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
-    .st-key-site_header [data-testid="stSegmentedControl"] button {width:100%;}
+    .st-key-site_header :is([data-baseweb="button-group"], [data-testid="stButtonGroupFlex"]) {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
+    .st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button {width:100%;}
 }
 .hero {background:#F7F9F1;border:1px solid #eaf0e5;border-radius:22px;padding:40px 42px;min-height:290px;margin:12px 0 24px}
 .hero h1 {font-size:clamp(31px,4vw,50px);line-height:1.25;margin:13px 0;font-weight:800}
@@ -133,6 +139,36 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 .region-count strong{font-size:20px;line-height:1.3;font-weight:700;color:#27583b;font-variant-numeric:tabular-nums}
 .region-count span{font-size:13px;color:#59665e;font-weight:400}
 .fineprint{font-size:11px;color:#77877c;line-height:1.7}
+[data-testid="stApp"]:has(.st-key-business_workspace){background:#f4f6f5;color:#243b30;}
+.st-key-business_workspace{background:#fff;border:1px solid #dce3df;border-radius:12px;padding:24px;box-shadow:none;}
+.st-key-business_workspace [data-testid="stVerticalBlock"]{gap:16px;}
+.st-key-business_workspace h1{font-size:32px!important;line-height:1.25!important;font-weight:750!important;letter-spacing:-.5px;margin:0!important;padding:0 0 8px!important;}
+.st-key-business_workspace h2{font-size:22px!important;line-height:1.35!important;font-weight:700!important;letter-spacing:-.2px;margin:0!important;padding:8px 0 4px!important;}
+.st-key-business_workspace h3{font-size:18px!important;line-height:1.4!important;font-weight:700!important;letter-spacing:0;margin:0!important;padding:4px 0!important;}
+.st-key-business_workspace :is(p,label,input,textarea,button,[data-baseweb="select"]){font-size:15px!important;line-height:1.6!important;}
+.st-key-business_workspace [data-testid="stCaptionContainer"] p{font-size:14px!important;color:#52645a!important;}
+.st-key-business_workspace [data-testid="stForm"]{padding:16px;border:1px solid #dce3df;border-radius:12px;background:#fff;box-shadow:none;}
+.st-key-business_workspace [data-testid="stExpander"]{border:1px solid #dce3df;border-radius:10px;background:#fff;box-shadow:none;}
+.st-key-business_workspace [data-testid="stExpander"] summary{padding:12px 16px;font-weight:600;}
+.st-key-business_workspace [data-testid="stMetric"]{padding:12px 16px;border:1px solid #dce3df;border-radius:10px;background:#f7f9f8;}
+.st-key-business_workspace [data-testid="stMetricValue"]{font-size:26px;line-height:1.3;color:#123e2b;}
+.st-key-business_workspace :is(input,textarea){color:#243b30;background:#fff;}
+.st-key-business_workspace :is([data-baseweb="input"],[data-baseweb="textarea"],[data-baseweb="select"]>div){border:1px solid #b6c3bb;border-radius:10px;box-shadow:none;}
+.st-key-business_workspace [role="tab"]{padding:8px 16px;color:#46594e;border-radius:10px 10px 0 0;}
+.st-key-business_workspace [role="tab"][aria-selected="true"]{color:#14532d;background:#e5f2e9;font-weight:700;}
+.st-key-business_workspace [data-baseweb="tab-highlight"]{background:#195b3e;}
+.st-key-business_workspace :is(button,a,input,textarea,select,[role="tab"],[role="combobox"],summary):focus-visible{outline:3px solid #195b3e!important;outline-offset:3px!important;}
+.st-key-business_workspace :is([data-baseweb="input"],[data-baseweb="textarea"],[data-baseweb="select"]):focus-within{outline:3px solid #195b3e;outline-offset:2px;}
+@media(max-width:640px){.st-key-business_workspace{padding:16px;}.st-key-business_workspace h1{font-size:28px!important;}.st-key-business_workspace h2{font-size:20px!important;}}
+.st-key-account_bar{background:#f5f8f6;border:1px solid #e0e8e3;border-radius:12px;padding:10px 14px;margin-bottom:18px;}
+.st-key-account_bar [data-testid="stHorizontalBlock"]{align-items:center;gap:12px;}
+.account-identity{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-height:38px;font-size:14px;color:#123e2b;}
+.account-name{font-weight:700;overflow-wrap:anywhere;}
+.account-role{padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#dcfce7;color:#166534;}
+.account-role-admin{background:#ede9fe;color:#5b21b6;}
+.account-role-buyer{background:#dbeafe;color:#1e40af;}
+.st-key-account_bar [data-testid="stButton"] button{min-height:38px;white-space:nowrap;}
+@media(max-width:640px){.st-key-account_bar [data-testid="stHorizontalBlock"]{flex-wrap:nowrap;}.st-key-account_bar [data-testid="stColumn"]:first-child{flex:1 1 0!important;min-width:0!important;width:auto!important;}.st-key-account_bar [data-testid="stColumn"]:last-child{flex:0 0 auto!important;min-width:100px!important;width:auto!important;}}
 [data-testid="stButton"] button[kind="primary"] {background:#195b3e;border-color:#195b3e}
 [data-testid="stButton"] button {border-radius:9px}
 @media(max-width:720px){.hero{padding:22px}.product-photo{height:150px}.block-container{padding-left:1rem;padding-right:1rem}}
@@ -230,9 +266,10 @@ def product_detail(p: dict):
             st.link_button("↗ Xem gian hàng / sàn TMĐT", p["source_url"], type="primary", use_container_width=True)
         else:
             st.info("Sản phẩm demo chưa có liên kết mua hàng.")
-        if st.button("Yêu cầu kết nối nhà cung cấp", key=f"ask_{p['source']}_{p['product_id']}", use_container_width=True):
-            st.session_state["request_product"] = p["product_name"]
-            st.session_state["page"] = "Kết nối cung cầu"
+        if (actor is None or actor['role'] == 'buyer') and st.button("Yêu cầu kết nối nhà cung cấp", key=f"ask_{p['source']}_{p['product_id']}", use_container_width=True):
+            st.session_state['purchase_reference'] = {'source': p['source'], 'product_id': p['product_id'],
+                                                       'title': p['product_name'], 'category': p['category_name']}
+            st.session_state["page"] = "Nhu cầu"
             st.rerun()
 
 
@@ -427,12 +464,64 @@ def regions(df: pd.DataFrame):
                     st.rerun()
 
 
+def guest_purchase():
+    from data.leads import save_guest_lead
+    st.title('Nhu cầu mua hàng')
+    st.caption('Gửi nhu cầu hoặc nhờ tìm sản phẩm, không cần đăng nhập.')
+    notice = st.session_state.pop('_guest_notice', None)
+    if notice:
+        st.success(notice)
+    st.info('Để lại email hoặc số điện thoại để quản trị viên liên hệ hỗ trợ. Thông tin không hiển thị công khai.')
+    with st.form(f'guest_purchase_form_{st.session_state.get("guest_form_generation", 0)}'):
+        kind = st.selectbox('Bạn cần hỗ trợ gì?', ['Nhu cầu mua hàng', 'Nhờ tìm sản phẩm'])
+        reference = st.session_state.get('purchase_reference', {})
+        default_note = st.session_state.get('request_product') or (
+            f"Tôi muốn tìm mua: {reference.get('title', '')}" if reference else '')
+        note = st.text_area('Nội dung *', value=default_note, max_chars=5000,
+                            placeholder='Ví dụ: Tìm 20 hộp trà OCOP làm quà, ngân sách 200.000đ/hộp, giao tại Hà Nội tuần tới.')
+        name = st.text_input('Tên liên hệ *', max_chars=200)
+        email = st.text_input('Email', max_chars=254)
+        phone = st.text_input('Số điện thoại', max_chars=30)
+        st.caption('Nhập ít nhất email hoặc số điện thoại.')
+        submitted = st.form_submit_button('Gửi yêu cầu', type='primary')
+    if submitted:
+        try:
+            lead_id = save_guest_lead(kind, name, email, phone, note)
+        except ValueError as error:
+            st.error(str(error))
+        except LeadStorageError:
+            st.error('Chưa gửi được yêu cầu. Vui lòng thử lại, thông tin vẫn được giữ trong biểu mẫu.')
+        else:
+            st.session_state['_guest_notice'] = f'Đã gửi yêu cầu #{lead_id}. Quản trị viên sẽ liên hệ qua thông tin bạn cung cấp.'
+            st.session_state.pop('purchase_reference', None)
+            st.session_state.pop('request_product', None)
+            st.session_state['guest_form_generation'] = st.session_state.get('guest_form_generation', 0) + 1
+            st.rerun()
+
+
 def connect():
-    st.markdown('<div class="section-kicker">KẾT NỐI CUNG — CẦU</div>', unsafe_allow_html=True)
-    st.header("Gửi nhu cầu mua sỉ hoặc đăng ký nhà cung cấp")
+    actor = auth_ui.identity()
+    st.title('Yêu cầu của tôi' if actor and actor['role'] == 'buyer' else 'Kết nối cung cầu')
+    if actor is None:
+        st.info('Vui lòng đăng nhập để gửi yêu cầu.')
+        auth_ui.login()
+        return
+    if actor['role'] not in ('buyer', 'seller'):
+        st.info('Admin quản lý yêu cầu tại trang Quản trị.')
+        return
+    if actor['role'] == 'seller':
+        st.info('Đăng ký và quản lý đơn vị cung cấp tại trang Nhà cung cấp. Quyền cung ứng được kiểm tra theo từng đơn vị đã duyệt.')
+        if st.button('Mở hồ sơ nhà cung cấp', key='open_supplier_profile'):
+            st.session_state['page'] = 'Nhà cung cấp'
+            st.rerun()
+        return
+    st.caption('Gửi yêu cầu mua sỉ hoặc tìm nguồn hàng, xem lại và cập nhật nội dung ngay trên trang này.')
+    st.subheader('Gửi yêu cầu mới')
     st.info("Thông tin được lưu khi bạn nhấn Gửi yêu cầu để phục vụ việc liên hệ và kết nối cung cầu.")
     with st.form("lead_form", clear_on_submit=False):
-        kind = st.radio("Bạn muốn", ["Nhận báo giá / tìm nguồn hàng", "Đăng ký nhà cung cấp"], horizontal=True)
+        from data.leads import KINDS
+        kind = KINDS[actor['role']]
+        st.caption(kind)
         name = st.text_input("Họ tên / Doanh nghiệp *")
         email = st.text_input("Email *")
         phone = st.text_input("Số điện thoại *")
@@ -445,12 +534,17 @@ def connect():
                 st.error("Email chưa đúng định dạng.")
             else:
                 try:
-                    lead_id = save_lead(kind, name, email, phone, note)
-                except (sqlite3.Error, OSError):
+                    lead_id = save_lead(kind, name, email, phone, note,
+                                        session=st.session_state.get('auth_session'))
+                except auth.AccessDenied as error:
+                    st.error(str(error))
+                except LeadStorageError:
                     st.error("Không thể lưu yêu cầu lúc này. Thông tin vẫn được giữ trong biểu mẫu, vui lòng thử lại.")
                 else:
                     st.success(f"Đã lưu yêu cầu của bạn. Mã yêu cầu: #{lead_id}.")
                     st.session_state["request_product"] = ""
+    st.divider()
+    auth_ui.requests_page(embedded=True)
 
 
 def sync_navigation():
@@ -459,17 +553,19 @@ def sync_navigation():
         st.session_state["page"] = selected
 
 
+actor = auth_ui.identity()
 if "page" not in st.session_state:
     st.session_state["page"] = "Trang chủ"
 try:
     products = load_products()
+    catalog_ready = not products.empty
     if products.empty:
         st.warning("Chưa có sản phẩm trong database đang được cấu hình.")
         st.caption(f"Database: {DUCKDB_PATH.name}. Trên Community Cloud, đặt DUCKDB_PATH=data/catalog.duckdb và DUCKDB_READ_ONLY=true trong Secrets, rồi khởi động lại ứng dụng. Khi chạy ở máy cá nhân, nhập dữ liệu bằng: python data/database.py --migrate-csv data/products_ocop.csv")
-        st.stop()
 except Exception as exc:
     st.error(f"Không đọc được dữ liệu sản phẩm: {exc}")
-    st.stop()
+    products = pd.DataFrame()
+    catalog_ready = False
 
 with st.container(key="site_header"):
     head_a, head_b = st.columns([1.15, 2.85], gap="large", vertical_alignment="center")
@@ -479,20 +575,104 @@ with head_a:
         unsafe_allow_html=True,
     )
 with head_b:
-    pages = ["Trang chủ", "Sản phẩm OCOP", "Vùng miền", "Kết nối cung cầu"]
+    pages = ["Trang chủ", "Sản phẩm OCOP", "Vùng miền", "Kết nối cung cầu", "Nhu cầu"]
+    if actor and actor['role'] == 'buyer':
+        pages = ['Trang chủ', 'Sản phẩm OCOP', 'Vùng miền', 'Nhu cầu mua hàng']
+        if st.session_state['page'] in ('Kết nối cung cầu', 'Yêu cầu của tôi', 'Nhu cầu'):
+            st.session_state['page'] = 'Nhu cầu mua hàng'
+    if actor is None:
+        pages = ['Trang chủ', 'Sản phẩm OCOP', 'Vùng miền', 'Nhu cầu mua hàng']
+        if st.session_state['page'] in ('Kết nối cung cầu', 'Nhu cầu', 'Yêu cầu của tôi'):
+            st.session_state['page'] = 'Nhu cầu mua hàng'
+        pages.append('Đăng nhập')
+    elif actor['role'] == 'seller':
+        pages = ['Trang chủ', 'Sản phẩm OCOP', 'Vùng miền', 'Yêu cầu báo giá', 'Quản lý cung ứng']
+        if st.session_state['page'] == 'Nhu cầu':
+            st.session_state['page'] = 'Yêu cầu báo giá'
+        elif st.session_state['page'] in ('Kết nối cung cầu', 'Yêu cầu của tôi', 'Nhà cung cấp'):
+            st.session_state['page'] = 'Quản lý cung ứng'
+    if actor and actor['role'] == 'buyer':
+        pages.append('Đăng ký cung cấp')
+        if st.session_state['page'] == 'Nhà cung cấp':
+            st.session_state['page'] = 'Đăng ký cung cấp'
+    if actor and actor['role'] == 'admin':
+        pages.remove('Kết nối cung cầu')
+        pages.remove('Nhu cầu')
+        if st.session_state['page'] in ('Kết nối cung cầu', 'Nhu cầu', 'Duyệt nhà cung cấp'):
+            st.session_state['page'] = 'Quản trị'
+        pages.append('Quản trị')
+        pages.append('Hiệu quả kết nối')
+    if st.session_state['page'] not in pages:
+        st.session_state['page'] = 'Trang chủ'
     st.session_state["navigation_page"] = st.session_state["page"]
     st.segmented_control("Điều hướng", options=pages, key="navigation_page", on_change=sync_navigation, label_visibility="collapsed", width="stretch")
 st.divider()
 
+if st.session_state.get('auth_session') is not None:
+    with st.container(key='account_bar'):
+        identity_col, logout_col = st.columns([6, 1], gap='small', vertical_alignment='center')
+        with identity_col:
+            if actor:
+                role = actor['role'] if actor['role'] in ('buyer', 'seller', 'admin') else ''
+                st.markdown(
+                    f'<div class="account-identity"><span>Tài khoản</span>'
+                    f'<span class="account-name">{html.escape(actor["username"])}</span>'
+                    f'<span class="account-role account-role-{role}">{html.escape(role_label(actor["role"]))}</span></div>',
+                    unsafe_allow_html=True)
+            else:
+                st.caption('Chưa xác minh được tài khoản')
+        with logout_col:
+            if st.button('Đăng xuất', key='logout', on_click=auth.logout, args=(st.session_state,), use_container_width=True):
+                st.rerun()
+
 current_page = st.session_state["page"]
-if current_page == "Trang chủ":
-    home(products)
-elif current_page == "Sản phẩm OCOP":
-    directory(products)
-elif current_page == "Vùng miền":
-    regions(products)
-else:
-    connect()
+with st.container(key='public_workspace' if current_page in ('Trang chủ', 'Sản phẩm OCOP', 'Vùng miền') else 'business_workspace'):
+    if current_page in ('Trang chủ', 'Sản phẩm OCOP', 'Vùng miền') and not catalog_ready:
+        st.info('Catalog chưa sẵn sàng. Bạn vẫn có thể đăng nhập và quản lý hồ sơ của mình.')
+    elif current_page == "Trang chủ":
+        home(products)
+    elif current_page == "Sản phẩm OCOP":
+        directory(products)
+    elif current_page == "Vùng miền":
+        regions(products)
+    elif current_page == 'Đăng nhập':
+        auth_ui.login()
+    elif current_page == 'Nhu cầu mua hàng':
+        if actor is None:
+            guest_purchase()
+        else:
+            purchase_ui.page(title='Nhu cầu mua hàng')
+            if not st.session_state.get('_buyer_create_open'):
+                with st.expander('Yêu cầu trước đây'):
+                    st.caption('Các yêu cầu liên hệ đã gửi qua biểu mẫu cũ.')
+                    auth_ui.requests_page(embedded=True, legacy=True)
+    elif current_page == 'Yêu cầu của tôi':
+        if actor and actor['role'] == 'buyer':
+            connect()
+        else:
+            auth_ui.requests_page()
+    elif current_page == 'Quản trị':
+        st.title('Quản trị')
+        demand_tab, request_tab, supplier_tab = st.tabs(
+            ['Nhu cầu mua hàng', 'Yêu cầu & tài khoản', 'Duyệt nhà cung cấp'])
+        with demand_tab:
+            purchase_ui.page(title=None)
+        with request_tab:
+            auth_ui.requests_page(admin=True, embedded=True)
+        with supplier_tab:
+            supplier_ui.page(admin=True, embedded=True)
+    elif current_page in ('Nhà cung cấp', 'Đăng ký cung cấp', 'Quản lý cung ứng'):
+        supplier_ui.page()
+    elif current_page == 'Yêu cầu báo giá':
+        purchase_ui.page(title='Yêu cầu báo giá')
+    elif current_page == 'Duyệt nhà cung cấp':
+        supplier_ui.page(admin=True)
+    elif current_page == 'Nhu cầu':
+        purchase_ui.page()
+    elif current_page == 'Hiệu quả kết nối':
+        dashboard_ui.page()
+    else:
+        connect()
 
 st.divider()
 st.markdown('<div class="fineprint">© 2026 OCOP Connect </div>', unsafe_allow_html=True)

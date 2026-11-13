@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS products (
 
 -- Bảng lưu thông tin đăng ký kết nối cung cầu.
 
--- Leads are stored in SQLite, not DuckDB.
+-- Leads use data/leads.py (SQLite or PostgreSQL), never DuckDB.
 
 -- Không tạo bảng embeddings thủ công tại đây.
 -- database.py khởi tạo bảng "ocop_embeddings_gemini"
