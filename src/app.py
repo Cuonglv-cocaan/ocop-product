@@ -5,13 +5,11 @@ Products: DuckDB; leads: configurable business storage.
 """
 from __future__ import annotations
 
-import base64
 import html
 import importlib
 import inspect
 import math
 import sys
-from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -24,6 +22,7 @@ from data.database import DUCKDB_PATH, read_products
 from data.leads import save_lead, LeadStorageError
 from data import auth
 from src.ui_labels import role_label
+from src.product_cards import money, star_label, source_badge, product_card_html
 from src import auth_ui
 from src import supplier_ui
 from src import purchase_ui
@@ -235,12 +234,6 @@ def load_products() -> pd.DataFrame:
     )
 
 
-def money(value: float) -> str:
-    if pd.isna(value) or not math.isfinite(value) or value < 0:
-        return "Giá chưa cập nhật"
-    return f"{value:,.0f}".replace(",", ".") + " ₫"
-
-
 @st.dialog("Chi tiết sản phẩm", width="large")
 def product_detail(p: dict):
     left, right = st.columns([1, 1.15], gap="medium")
@@ -273,40 +266,8 @@ def product_detail(p: dict):
             st.rerun()
 
 
-def star_label(value):
-    return f"★ {int(value)} sao" if value in (3, 4, 5) else "Chưa cập nhật"
-
-
-@lru_cache(maxsize=8)
-def source_badge(source: str) -> str:
-    key = source.strip().upper().replace(" ", "").replace("_", "").replace("-", "")
-    brands = {
-        "TIKI": ("tiki.png", "image/png", "Tiki"),
-        "TIKTOK": ("tiktokshop.webp", "image/webp", "TikTok Shop"),
-        "TIKTOKSHOP": ("tiktokshop.webp", "image/webp", "TikTok Shop"),
-    }
-    brand = brands.get(key)
-    logo = ""
-    label = source
-    if brand:
-        filename, mime_type, label = brand
-        icon_path = BASE_DIR.parent / "data" / "icons" / filename
-        if icon_path.is_file():
-            encoded = base64.b64encode(icon_path.read_bytes()).decode("ascii")
-            logo = f'<img class="source-logo" src="data:{mime_type};base64,{encoded}" alt="" aria-hidden="true">'
-    return f'<div class="source-chip">{logo}<span class="source-name">{escape(label)}</span></div>'
-
-
 def product_card(p: dict):
-    image = (f'<img class="product-photo" src="{escape(p["image_url"])}" alt="Ảnh minh họa sản phẩm">'
-             if p["image_url"] else '<div class="product-photo" style="display:grid;place-items:center">🌿</div>')
-    st.markdown(f"""<div class="product-card">{image}<div class="product-card-body">
-    <div class="product-category">{escape(p['category_name'])}</div>
-    <div class="product-name">{escape(p['product_name'])}</div>
-    <div class="product-meta">🗺️ {escape(p['province_name'])} &nbsp; <span class="star-chip star-chip-{int(p['ocop_stars'])}">{star_label(p['ocop_stars'])}</span></div>
-    <div class="product-price">{money(p['price'])}</div>
-    {source_badge(p['source'])}
-    </div></div>""", unsafe_allow_html=True)
+    st.markdown(product_card_html(p), unsafe_allow_html=True)
     if st.button("Xem chi tiết →", key=f"detail_{p['source']}_{p['product_id']}", use_container_width=True):
         product_detail(p)
 
@@ -675,4 +636,7 @@ with st.container(key='public_workspace' if current_page in ('Trang chủ', 'S�
         connect()
 
 st.divider()
+search_module.floating_chat()
 st.markdown('<div class="fineprint">© 2026 OCOP Connect </div>', unsafe_allow_html=True)
+if st.session_state.pop('_chat_refresh', False):
+    st.rerun()

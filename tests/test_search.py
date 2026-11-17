@@ -149,6 +149,113 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_starter_and_followup_click_send_once_with_context(self):
+        product = dict(product_name='Tea', province_name='Hà Nội', price=100,
+                       source='TIKI', product_id='1')
+        with patch('src.search.search_products_async', new=AsyncMock(return_value=('Bạn mua làm quà không?', [product], []))) as ai:
+            app = self.app()
+            self.assertEqual(len(app.button), 3)
+            starter = search.STARTER_QUESTIONS[0]
+            app.button(key='discovery_suggestion_0_0').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(ai.call_args.args[0], starter)
+            self.assertEqual(app.session_state['discovery_messages'][0]['content'], starter)
+            app.run()
+            self.assertEqual(ai.await_count, 1)
+            followup = app.session_state['discovery_messages'][-1]['followup_questions'][0]
+            app.button(key='discovery_suggestion_2_0').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(ai.call_args.args[0], followup)
+            self.assertEqual(len(ai.call_args.kwargs['history']), 2)
+            saved_messages = self.save.call_args.args[2]
+            self.assertTrue(saved_messages[-1]['followup_questions'])
+            app.run()
+            self.assertEqual(ai.await_count, 2)
+            app.button(key='clear_discovery').click().run()
+            self.assertEqual(len(app.button), 3)
+            self.assertEqual(app.session_state['discovery_messages'], [])
+
+    def test_floating_suggestion_does_not_duplicate_request(self):
+        app = AppTest.from_string(
+            'from src.search import product_discovery, floating_chat\n'
+            'product_discovery()\nfloating_chat()'
+        )
+        with patch('src.search.search_products_async', new=AsyncMock(return_value=('Tea', [], []))) as ai:
+            app.run()
+            app.button(key='floating_discovery_suggestion_0_1').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(ai.await_count, 1)
+            app.run()
+            self.assertEqual(ai.await_count, 1)
+            self.assertEqual(len(app.session_state['discovery_messages']), 2)
+
+    def setUp(self):
+        persistence = patch('data.chat.save_conversation', return_value=1)
+        self.save = persistence.start()
+        self.addCleanup(persistence.stop)
+
+    def test_new_session_does_not_restore_saved_messages(self):
+        with patch('src.search.search_products_async', new=AsyncMock(return_value=('Tea', [], []))):
+            app = self.app()
+            app.session_state['auth_session'] = object()
+            app.chat_input[0].set_value('Tea please').run()
+            self.assertEqual(len(app.session_state['discovery_messages']), 2)
+            self.assertFalse(app.selectbox)
+            fresh = self.app()
+            fresh.session_state['auth_session'] = app.session_state['auth_session']
+            fresh.run()
+            self.assertEqual(fresh.session_state['discovery_messages'], [])
+            self.assertFalse(fresh.chat_message)
+
+    def test_guest_chat_is_saved_with_session_key(self):
+        with patch('src.search.search_products_async', new=AsyncMock(return_value=('Tea', [], []))):
+            app = self.app()
+            app.chat_input[0].set_value('Tea please').run()
+            self.assertIsNone(self.save.call_args.args[0])
+            self.assertTrue(self.save.call_args.kwargs['session_key'])
+            self.assertEqual(len(self.save.call_args.args[2]), 2)
+
+    def test_logout_clears_chat_but_does_not_delete_research_data(self):
+        app = AppTest.from_string(
+            'import streamlit as st\nfrom data.auth import logout\n'
+            'from src.search import product_discovery\n'
+            'st.button("Logout", on_click=logout, args=(st.session_state,))\n'
+            'product_discovery()'
+        ).run()
+        app.session_state['discovery_messages'] = [{'role': 'user', 'content': 'Tea'}]
+        app.session_state['chat_session_key'] = 'previous'
+        app.session_state['chat_id'] = 'previous'
+        app.button[0].click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.session_state['discovery_messages'], [])
+        self.assertNotIn('chat_session_key', app.session_state)
+
+    def test_shared_history_between_widgets(self):
+        app = AppTest.from_string(
+            'from src.search import product_discovery, floating_chat\n'
+            'product_discovery(key_prefix="directory_discovery")\nfloating_chat()'
+        )
+        with patch('src.search.search_products_async', new=AsyncMock(return_value=('Trà phù hợp', [], []))):
+            app.run()
+            app.chat_input(key='directory_discovery_question').set_value('Tìm trà').run()
+            self.assertFalse(app.exception)
+            self.assertEqual(len(app.session_state['discovery_messages']), 2)
+            self.assertEqual(len(app.chat_message), 4)
+
+    def test_failed_save_keeps_draft_and_retry_saves(self):
+        with patch('data.chat.save_conversation', side_effect=[RuntimeError('offline'), RuntimeError('offline'), 1]) as save, \
+                patch('src.search.search_products_async', new=AsyncMock(return_value=('Trà', [], []))):
+            app = self.app()
+            app.session_state['auth_session'] = object()
+            app.chat_input[0].set_value('Tìm trà').run()
+            self.assertTrue(app.session_state['chat_dirty'])
+            self.assertEqual(len(app.session_state['discovery_messages']), 2)
+            app.run()
+            app.button(key='discovery_retry').click().run()
+            self.assertFalse(app.exception)
+            self.assertFalse(app.session_state['chat_dirty'])
+            self.assertEqual(save.call_count, 3)
+
     def app(self):
         return AppTest.from_string(
             "from src.search import product_discovery\nproduct_discovery()"

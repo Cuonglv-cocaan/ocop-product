@@ -13,7 +13,7 @@ Hệ thống ghi nhận nhu cầu, phân nhà cung cấp, báo giá và xác nh�
 | Nhà cung cấp (`seller`) | Quản lý hồ sơ và sản phẩm cung ứng của đơn vị theo membership; xem và phản hồi các phiếu được phân cho đơn vị đã duyệt. |
 | Quản trị viên (`admin`) | Duyệt/tạm ngưng nhà cung cấp, xem yêu cầu liên hệ, phân nhà cung cấp thủ công hoặc theo gợi ý, xem KPI, bật/tắt tài khoản khác. |
 
-Phân quyền được kiểm tra ở lớp dữ liệu bằng tài khoản hiện hành trong PostgreSQL, không chỉ ẩn menu. Mật khẩu lưu bằng Argon2id; phiên chứa identity có chữ ký và `auth_version`. Đổi mật khẩu hoặc khóa tài khoản làm phiên cũ mất hiệu lực. Đăng xuất xóa session state, bản nháp và lịch sử chat. Chưa có đăng ký tài khoản công khai, quên mật khẩu hoặc Supabase Auth/OIDC.
+Phân quyền được kiểm tra ở lớp dữ liệu bằng tài khoản hiện hành trong PostgreSQL, không chỉ ẩn menu. Mật khẩu lưu bằng Argon2id; phiên chứa identity có chữ ký và `auth_version`. Đổi mật khẩu hoặc khóa tài khoản làm phiên cũ mất hiệu lực. Đăng xuất xóa session state và bản nháp; hội thoại trong database được giữ để nghiên cứu, không hiển thị lại sau đăng nhập. Chưa có đăng ký tài khoản công khai, quên mật khẩu hoặc Supabase Auth/OIDC.
 
 ## Kiến trúc và lưu trữ
 
@@ -87,7 +87,24 @@ python -m streamlit run src/app.py
 
 `seed` hỏi mật khẩu qua prompt ẩn (hoặc đọc `DEMO_ACCOUNT_PASSWORD`), tạo các tài khoản còn thiếu: `buyer01`, `buyer02`, `seller01`, `seller02`, `admin01`. Chạy lại giữ nguyên tài khoản đã có. Đổi mật khẩu bằng `python -m data.accounts set-password --username buyer01`.
 
-Migration áp dụng các file SQL 001–006 theo thứ tự, lưu checksum ở `business.schema_migrations`, có transaction và advisory lock. Chạy lại không áp dụng lại; không sửa migration đã chạy. Ứng dụng không tự migration hoặc seed khi khởi động. Không cần PostgreSQL để chỉ xem catalog, nhưng các chức năng nghiệp vụ sẽ cần cấu hình đầy đủ.
+Migration áp dụng các file SQL 001–010 theo thứ tự, lưu checksum ở `business.schema_migrations`, có transaction và advisory lock. Chạy lại không áp dụng lại; không sửa migration đã chạy. Ứng dụng không tự migration hoặc seed khi khởi động. Không cần PostgreSQL để chỉ xem catalog, nhưng các chức năng nghiệp vụ sẽ cần cấu hình đầy đủ.
+
+## Chat AI và lịch sử hội thoại
+
+Nút **💬 Chat với AI** ở góc dưới màn hình dùng chung hội thoại với khung khám phá sản phẩm ở các trang. AI dùng lịch sử để hiểu câu hỏi tiếp nối và gợi ý từ catalog hiện có.
+
+Phiên chat mới có 3 câu hỏi gợi ý để bắt đầu bằng một lần bấm. Sau câu trả lời, các nút hỏi tiếp dựa trên sản phẩm vừa gợi ý giúp so sánh, tìm lựa chọn rẻ hơn hoặc khám phá cùng vùng miền. Câu hỏi được chọn gửi qua cùng luồng AI và lưu như câu hỏi tự nhập. AI được hướng dẫn kết thúc bằng một câu hỏi làm rõ nhu cầu, tránh hỏi lại thông tin đã có.
+
+Gợi ý hỏi tiếp hiển thị bằng nút ngắn gọn; câu hỏi đầy đủ được cố định và lưu trong cột JSONB `followup_questions` của `business.chat_turns`, cũng có trong view `business.chat_research`. Tải lại giao diện không sinh lại danh sách khác. Những lượt cũ chưa từng ghi nhận gợi ý có giá trị `[]`; không suy diễn lại gợi ý lịch sử.
+
+- Cả khách và tài khoản đăng nhập: mỗi lần hỏi là một dòng trong `business.chat_turns`, có `question`, `answer`, `products`, `status`, `asked_at`, `answered_at`. Dòng được tạo ngay khi hỏi (`pending`), cập nhật khi AI trả lời (`answered`) hoặc báo lỗi (`error`); thử lưu lại không tạo dòng trùng. `conversation_id` và `turn_number` xác định thứ tự trong hội thoại.
+- `business.chat_conversations` chỉ lưu thông tin chung của hội thoại mới, không ghi toàn bộ lịch sử vào `messages`. Migration 009 tách dữ liệu cũ sang `chat_turns` và giữ snapshot cũ làm bản đối chiếu. Thời gian từng lượt của dữ liệu cũ không có sẵn nên dùng thời gian cấp hội thoại khi chuyển đổi.
+- Mở view `business.chat_research` để kiểm tra mỗi câu hỏi kèm `user_id`, `session_key` và tiêu đề hội thoại. Khách có `user_id=NULL`; tài khoản đăng nhập được xác minh trước khi lưu.
+- Giao diện chỉ hiển thị hội thoại trong phiên Streamlit hiện tại. Phiên mới, đăng nhập hoặc đăng xuất đều bắt đầu lại; không có chức năng mở lịch sử từ database. Bản ghi cũ vẫn được giữ để nghiên cứu.
+- Mỗi phiên có khóa ngẫu nhiên phía server (`session_key`), tránh cập nhật hội thoại của phiên khác. Không dùng cookie theo dõi hoặc IP để nhận dạng khách. Dữ liệu nghiên cứu được truy cập bằng công cụ database có quyền phù hợp, không qua giao diện khách hàng.
+- **Bắt đầu cuộc trò chuyện mới** giữ bản đã lưu. Khi lưu lỗi, bản nháp giữ trong phiên và có nút thử lưu lại. Đăng xuất/hết phiên làm mất phần chưa lưu.
+
+Sau khi cập nhật mã nguồn, chạy `python -m data.postgres --init-schema` để thêm bảng chat trước khi sử dụng lưu lịch sử. Cấu hình Gemini vẫn dùng các biến môi trường ở trên.
 
 ## Luồng nghiệp vụ
 

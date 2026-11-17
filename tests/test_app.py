@@ -9,6 +9,11 @@ from data.database import COLUMNS
 
 
 class AppTests(unittest.TestCase):
+    def setUp(self):
+        history = patch('data.chat.save_conversation', return_value=1)
+        history.start()
+        self.addCleanup(history.stop)
+
     def test_guest_can_submit_without_login_and_retry(self):
         from data.leads import LeadStorageError
         with patch('data.database.read_products', return_value=pd.DataFrame(columns=COLUMNS)), \
@@ -105,7 +110,7 @@ class AppTests(unittest.TestCase):
                 patch('src.search.product_discovery', new=legacy_discovery):
             app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py')).run(timeout=20)
             self.assertFalse(app.exception)
-            app.button[0].click().run()
+            next(b for b in app.button if b.label.startswith('Kh') and b.label.endswith('phẩm →')).click().run()
             self.assertFalse(app.exception)
             self.assertEqual(app.chat_input[0].key, 'directory_discovery_question')
             self.assertTrue(any('Hiển thị 1 / 1 sản phẩm' in c.value for c in app.caption))
@@ -126,7 +131,7 @@ class AppTests(unittest.TestCase):
             self.assertIn('Giá chưa cập nhật', content)
             self.assertIn('Chưa cập nhật', content)
             self.assertIn('0 ₫', content)
-            app.button[0].click().run()
+            next(b for b in app.button if b.label.startswith('Kh') and b.label.endswith('phẩm →')).click().run()
             self.assertFalse(app.exception)
             self.assertEqual(app.session_state['page'], 'Sản phẩm OCOP')
             app.selectbox(key='stars_filter').select('Chưa cập nhật').run()
@@ -167,25 +172,25 @@ class AppTests(unittest.TestCase):
                 patch('src.search.search_products_async', new_callable=AsyncMock) as ai:
             ai.return_value = ('Gợi ý làm quà', [{**rows[0], 'price': 100, 'ocop_stars': 4}], [])
             app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py')).run(timeout=20)
-            app.button[0].click().run()
+            next(b for b in app.button if b.label.startswith('Kh') and b.label.endswith('phẩm →')).click().run()
             ai.assert_not_awaited()
             app.selectbox(key='stars_filter').select('Chưa cập nhật').run()
             app.chat_input(key='directory_discovery_question').set_value('quà tặng cho gia đình').run()
             self.assertFalse(app.exception)
-            self.assertEqual(len(app.chat_message), 2)
+            self.assertEqual(len(app.chat_message), 4)  # Shared inline and floating chat.
             self.assertTrue(any('Hiển thị 2 / 3 sản phẩm' in c.value for c in app.caption))
             self.assertTrue(any(m.value == 'Gợi ý làm quà' for m in app.markdown))
-            self.assertTrue(any(w.value == 'Tea 0' for w in app.markdown))
+            self.assertTrue(any('Tea 0' in w.value and 'product-card' in w.value for w in app.markdown))
             self.assertEqual(set(ai.await_args.kwargs), {'history', 'top_k'})
             app.selectbox(key='product_sort').select('Giá tăng dần').run()
             ai.assert_awaited_once()
             app.button(key='clear_filters').click().run()
-            self.assertEqual(len(app.session_state['directory_discovery_messages']), 2)
+            self.assertEqual(len(app.session_state['discovery_messages']), 2)
             ai.assert_awaited_once()
             self.assertTrue(any('Hiển thị 3 / 3 sản phẩm' in c.value for c in app.caption))
             app.selectbox(key='stars_filter').select('4 sao').run()
             app.button(key='clear_directory_discovery').click().run()
-            self.assertEqual(app.session_state['directory_discovery_messages'], [])
+            self.assertEqual(app.session_state['discovery_messages'], [])
             self.assertEqual(app.selectbox(key='stars_filter').value, '4 sao')
             self.assertTrue(any('Hiển thị 1 / 3 sản phẩm' in c.value for c in app.caption))
             ai.side_effect = RuntimeError('service unavailable')
