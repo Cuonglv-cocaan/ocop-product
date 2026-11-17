@@ -79,7 +79,7 @@ class PurchaseIntegrationTests(unittest.TestCase):
         self.assertEqual(next(e for e in detail['events'] if e['event_type'] == 'assigned')['actor_role'], 'admin')
         quoted_event = next(e for e in detail['events'] if e['event_type'] == 'quoted')
         self.assertEqual(quoted_event['actor_role'], 'seller')
-        self.assertEqual(quoted_event['actor_supplier_name'], 'Test unit A')
+        self.assertNotIn('actor_supplier_name', quoted_event)
         self.assertEqual([q['version'] for q in detail['quotes'] if q['match_id'] == match_a], [1, 2])
         self.assertEqual(next(q for q in detail['quotes'] if q['id'] == first)['status'], 'superseded')
         self.assertEqual(next(q for q in detail['quotes'] if q['id'] == second)['total_amount'], Decimal('237.62'))

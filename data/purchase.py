@@ -342,6 +342,19 @@ def list_requests(session):
             r.delivery_deadline,r.created_at FROM business.purchase_requests r''' + where + ' ORDER BY r.id DESC', params).fetchall()
 
 
+def _buyer_history(events):
+    """Exclude supplier identity and archived assignment data from buyer history."""
+    result = []
+    for event in events:
+        public = dict(event)
+        public.pop('actor_supplier_name', None)
+        if public['event_type'] == 'unassigned':
+            # Both legacy plain text and new JSON archives contain identity.
+            public['content'] = 'Quản trị viên đã hủy một phân công chưa có báo giá.'
+        result.append(public)
+    return result
+
+
 def request_detail(session, request_id):
     """Return role-scoped projections, never send concealed contacts to the UI."""
     with postgres.transaction() as connection:
@@ -399,4 +412,6 @@ def request_detail(session, request_id):
             LEFT JOIN business.request_matches m ON m.id=e.match_id
             LEFT JOIN business.suppliers s ON s.id=m.supplier_id
             WHERE ''' + event_where + ' ORDER BY e.id', params).fetchall()
+        if actor['role'] == 'buyer':
+            events = _buyer_history(events)
     return {'request': row, 'matches': matches, 'quotes': quotes, 'contacts': contacts, 'events': events}

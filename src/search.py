@@ -22,7 +22,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from data.database import connect, get_vector_store, read_products
 from data import chat
 from src.product_cards import product_card_html
-from src.chat_styles import CHAT_STYLES
 from uuid import uuid4
 
 
@@ -543,7 +542,7 @@ def _question_suggestions(messages, key_prefix):
                 for index, question in enumerate(options):
                     st.button(_followup_label(question), icon='↗', help=question,
                               key=f'{key_prefix}_suggestion_{len(messages)}_{index}',
-                              use_container_width=False, on_click=st.session_state.__setitem__,
+                              width="content", on_click=st.session_state.__setitem__,
                               args=('_chat_suggested_question', question))
             return
         starter_labels = (
@@ -556,7 +555,7 @@ def _question_suggestions(messages, key_prefix):
             with column:
                 st.button(label, icon=icon, help=question,
                           key=f'{key_prefix}_suggestion_{len(messages)}_{index}',
-                          use_container_width=True, on_click=st.session_state.__setitem__,
+                          width="stretch", on_click=st.session_state.__setitem__,
                           args=('_chat_suggested_question', question))
 
 
@@ -576,7 +575,6 @@ def _followup_label(question):
 
 
 def product_discovery(key_prefix: str = "discovery"):
-    st.markdown(CHAT_STYLES, unsafe_allow_html=True)
     messages_key = "discovery_messages"
     clear_key = "clear_discovery" if key_prefix == "discovery" else f"clear_{key_prefix}"
     with st.container(border=True):
@@ -642,11 +640,11 @@ def _confirm_new_chat():
              'hiển thị và không được thử lưu lại. Bạn có muốn tiếp tục?')
     keep, start = st.columns(2)
     with keep:
-        if st.button('Tiếp tục trò chuyện', key='cancel_new_chat', use_container_width=True):
+        if st.button('Tiếp tục trò chuyện', key='cancel_new_chat', width="stretch"):
             st.rerun()
     with start:
         if st.button('Bắt đầu mới', key='confirm_new_chat', type='primary',
-                     on_click=_reset_chat, use_container_width=True):
+                     on_click=_reset_chat, width="stretch"):
             st.rerun()
 
 
@@ -686,30 +684,6 @@ def _history_controls(prefix):
 
 
 def floating_chat():
-    st.markdown('''<style>
-    .st-key-floating_chat {
-        position:fixed;bottom:calc(96px + env(safe-area-inset-bottom, 0px));
-        right:calc(24px + env(safe-area-inset-right, 0px));
-        width:auto;max-width:calc(100vw - 48px);z-index:990;
-    }
-    .st-key-floating_chat [data-testid="stPopoverButton"] > button,
-    .st-key-floating_chat button[data-testid="stPopoverButton"],
-    .st-key-floating_chat [data-testid="stPopover"] > button {
-        border-radius:24px;background:#195b3e;color:#fff;border:1px solid #195b3e;
-        padding:10px 18px;min-height:46px;font-weight:700;
-        box-shadow:0 5px 18px rgba(18,62,43,.22);
-    }
-    .st-key-floating_chat [data-testid="stPopoverButton"] > button:hover,
-    .st-key-floating_chat button[data-testid="stPopoverButton"]:hover,
-    .st-key-floating_chat [data-testid="stPopover"] > button:hover {background:#103f2a!important;}
-    @media(max-width:640px){
-        .st-key-floating_chat {
-            bottom:calc(88px + env(safe-area-inset-bottom, 0px));
-            right:calc(16px + env(safe-area-inset-right, 0px));
-            max-width:calc(100vw - 32px);
-        }
-    }
-    </style>''', unsafe_allow_html=True)
     with st.container(key='floating_chat'):
-        with st.popover('💬 Chat với AI', use_container_width=True):
+        with st.popover('💬 Chat với AI', width="stretch"):
             product_discovery(key_prefix='floating_discovery')

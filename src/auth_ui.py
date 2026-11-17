@@ -15,31 +15,17 @@ def _guest_demand():
 def login():
     if st.session_state.pop('_clear_login_password', False):
         st.session_state['login_password'] = ''
-    st.markdown('''<style>
-    .st-key-login_card {
-        width:min(100%,420px)!important;max-width:420px;margin:24px auto;
-        padding:26px;background:#fff;border:1px solid #dce5df;border-radius:16px;
-        box-shadow:0 6px 24px rgba(18,62,43,.06);box-sizing:border-box;
-    }
-    .st-key-login_card [data-testid="stForm"] {border:0;padding:0;}
-    .st-key-login_card h1 {text-align:center;}
-    .st-key-login_card .st-key-guest_demand button {
-        border:0;background:transparent;color:#195b3e;padding:6px 0;
-        box-shadow:none;text-align:center;white-space:normal;
-    }
-    @media(max-width:480px){.st-key-login_card{padding:20px;margin:12px auto;}}
-    </style>''', unsafe_allow_html=True)
     with st.container(key='login_card', border=True):
         st.title('Đăng nhập')
         with st.form('internal_login', clear_on_submit=False):
             username = st.text_input('Tên đăng nhập', key='login_username')
             password = st.text_input('Mật khẩu', type='password', key='login_password')
-            submitted = st.form_submit_button('Đăng nhập', type='primary', use_container_width=True)
+            submitted = st.form_submit_button('Đăng nhập', type='primary', width="stretch")
         error_message = st.session_state.pop('_login_error', None)
         if error_message:
             st.error(error_message)
         st.button('Chưa có tài khoản? Gửi nhu cầu không cần đăng nhập',
-                  key='guest_demand', on_click=_guest_demand, use_container_width=True)
+                  key='guest_demand', on_click=_guest_demand, width="stretch")
     if submitted:
         try:
             session = auth.authenticate(username, password)

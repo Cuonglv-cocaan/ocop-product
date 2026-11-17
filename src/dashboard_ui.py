@@ -72,7 +72,7 @@ def _funnel(result):
                           'color': {'condition': {'test': "datum.count > 0 && (datum.stage === '4. Chọn báo giá' || datum.stage === '5. Kết nối')", 'value': '#ffffff'},
                                     'value': '#123e2b'}}},
         ], 'config': {'view': {'stroke': None}},
-    }, use_container_width=True)
+    }, width="stretch")
     st.caption('Mỗi bước đếm yêu cầu duy nhất; tỷ lệ khi di chuột tính trên số yêu cầu tạo. '
                'Chọn báo giá: từng có sự kiện selected hoặc còn selected_quote_id. '
                'Kết nối: trạng thái hiện tại là connected.')

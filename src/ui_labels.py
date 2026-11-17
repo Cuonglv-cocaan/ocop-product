@@ -165,16 +165,5 @@ def render_stepper(status):
         items.append(f'<li class="ocop-step {state}"{aria} title="{escape(STATES[key])}">'
                      f'<span class="ocop-step-marker" aria-hidden="true">{marker}</span>'
                      f'<span>{escape(label)}</span></li>')
-    st.markdown('''<style>
-    .ocop-stepper {display:flex;gap:8px;list-style:none!important;padding:0!important;margin:12px 0 20px!important;}
-    .ocop-stepper .ocop-step {flex:1;display:flex;align-items:center;gap:8px;margin:0;padding:12px 10px;
-        border:1px solid #e1e7e3;border-radius:10px;background:#f7f9f8;color:#64746b;font-size:13px;line-height:1.4;}
-    .ocop-step-marker {display:grid;place-items:center;flex-shrink:0;width:26px;height:26px;border-radius:50%;
-        background:#e7ece9;color:#58695e;font-weight:750;}
-    .ocop-stepper .done {color:#216e40;background:#f0f7f2;border-color:#d2e4d8;}
-    .ocop-stepper .done .ocop-step-marker {background:#287a4d;color:#fff;}
-    .ocop-stepper .current {background:#e2f2e7;color:#123e2b;border:2px solid #287a4d;font-weight:800;}
-    .ocop-stepper .current .ocop-step-marker {background:#195b3e;color:#fff;}
-    @media(max-width:700px){.ocop-stepper{flex-direction:column;gap:6px;}.ocop-stepper .ocop-step{padding:9px 12px;}}
-    </style><ol class="ocop-stepper" aria-label="Tiến trình xử lý nhu cầu">'''
+    st.markdown('''<ol class="ocop-stepper" aria-label="Tiến trình xử lý nhu cầu">'''
                 + ''.join(items) + '</ol>', unsafe_allow_html=True)

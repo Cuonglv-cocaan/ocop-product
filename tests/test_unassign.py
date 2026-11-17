@@ -6,6 +6,22 @@ from data import purchase
 
 
 class UnassignTests(unittest.TestCase):
+    def test_buyer_history_omits_supplier_names_and_archived_snapshots(self):
+        events = [dict(event_type='quoted', actor_role='seller', actor_supplier_name='Secret unit',
+                       content='Gửi báo giá phiên bản 1.'),
+                  dict(event_type='unassigned', actor_role='admin',
+                       content=json.dumps({'message': 'Cancel Secret unit',
+                                           'assignment': {'supplier_name': 'Secret unit', 'matching_snapshot': {}}})),
+                  dict(event_type='unassigned', content='Cancel Legacy unit')]
+        public = purchase._buyer_history(events)
+        self.assertNotIn('Secret unit', json.dumps(public))
+        self.assertNotIn('Legacy unit', json.dumps(public))
+        self.assertNotIn('matching_snapshot', json.dumps(public))
+        self.assertEqual(public[0]['actor_role'], 'seller')
+        self.assertEqual(public[0]['content'], events[0]['content'])
+        self.assertEqual(events[0]['actor_supplier_name'], 'Secret unit')
+        self.assertIn('Secret unit', events[1]['content'])
+
     def test_database_quote_check_blocks_stale_ui(self):
         connection = MagicMock()
         connection.execute.return_value.fetchone.return_value = (1,)

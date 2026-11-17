@@ -158,19 +158,6 @@ def _quotes(detail, actor, session):
         if candidates:
             st.caption('Kiểm tra số lượng đáp ứng, phí giao hàng và chi phí chưa gồm trước khi chọn.')
             with st.form(f'choose_quote_{row["id"]}'):
-                st.markdown('''<style>
-                [class*="st-key-quote_cards_"] [role="radiogroup"] {gap:10px;}
-                [class*="st-key-quote_cards_"] [data-baseweb="radio"] {
-                    display:flex;align-items:flex-start;margin:0;padding:14px 16px;
-                    border:1px solid #d7e3db;border-radius:12px;background:#fff;
-                }
-                [class*="st-key-quote_cards_"] [data-baseweb="radio"]:has(input:checked) {
-                    border:2px solid #287a4d;background:#edf7ef;
-                }
-                [class*="st-key-quote_cards_"] [data-baseweb="radio"]:hover {border-color:#287a4d;background:#f4f9f5;}
-                [class*="st-key-quote_cards_"] [data-baseweb="radio"]:focus-within {outline:2px solid #287a4d;outline-offset:3px;}
-                [class*="st-key-quote_cards_"] [data-baseweb="radio"] p {line-height:1.6;}
-                </style>''', unsafe_allow_html=True)
                 labels = {q['id']: f"#{q['id']} · {q['supplier_name']}\n\n"
                           f"{number_label(q['quantity'])} {q['unit']} · {money_label(q['total_amount'])}"
                           f" · Giao {date_label(q['expected_delivery'])}"
@@ -270,11 +257,11 @@ def _confirm_connected(session, request_id):
         st.error(error)
     cancel, confirm = st.columns(2)
     with cancel:
-        if st.button('Hủy', key=f'cancel_connected_{request_id}', use_container_width=True):
+        if st.button('Hủy', key=f'cancel_connected_{request_id}', width="stretch"):
             st.rerun()
     with confirm:
         if st.button('Xác nhận', key=f'confirm_connected_{request_id}', type='primary',
-                     on_click=_confirm_connected_action, args=(session, request_id), use_container_width=True):
+                     on_click=_confirm_connected_action, args=(session, request_id), width="stretch"):
             if '_connected_error' in st.session_state:
                 st.error(st.session_state.pop('_connected_error'))
             else:
@@ -299,15 +286,7 @@ def _history_timeline(events):
                      + '</strong><span>' + escape(time_label(event.get('created_at')))
                      + '</span></div><div class="request-timeline-content">'
                      + escape(event_label(event)) + '</div></li>')
-    st.markdown('''<style>
-    .request-timeline {list-style:none!important;margin:12px 0 12px 8px!important;padding:0 0 0 22px!important;border-left:2px solid #d3e5d9;}
-    .request-timeline li {position:relative;list-style:none;padding:0 0 22px 0;}
-    .request-timeline li:last-child {padding-bottom:0;}
-    .request-timeline li::before {content:'';position:absolute;left:-29px;top:5px;width:12px;height:12px;border-radius:50%;background:#287a4d;border:2px solid #fff;}
-    .request-timeline-meta {display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;font-size:13px;color:#195b3e;}
-    .request-timeline-meta span {font-size:12px;color:#63796b;}
-    .request-timeline-content {margin-top:8px;padding:12px 14px;background:#f4f8f5;border:1px solid #e0e9e3;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.7;}
-    </style><ol class="request-timeline" aria-label="Lịch sử xử lý">'''
+    st.markdown('''<ol class="request-timeline" aria-label="Lịch sử xử lý">'''
                 + ''.join(items) + '</ol>', unsafe_allow_html=True)
 
 
@@ -326,7 +305,7 @@ def _request_selector(rows, role):
           'Số lượng': number_label(r['quantity']), 'Đơn vị': r['unit'],
           'Hạn giao': date_label(r['delivery_deadline'])} for r in rows],
         hide_index=True, key=f'purchase_requests_{digest}',
-        on_select='rerun', selection_mode='single-row', use_container_width=True,
+        on_select='rerun', selection_mode='single-row', width="stretch",
     )
     positions = event['selection']['rows']
     if positions and isinstance(positions[0], int) and 0 <= positions[0] < len(ids):
@@ -359,9 +338,9 @@ def page(title='Nhu cầu và kết nối cung cầu'):
                 st.caption('Gửi nhu cầu mua hàng, theo dõi phản hồi và chọn báo giá phù hợp.')
             with action:
                 if creating:
-                    st.button('Quay lại danh sách', on_click=_close_buyer_create, use_container_width=True)
+                    st.button('Quay lại danh sách', on_click=_close_buyer_create, width="stretch")
                 else:
-                    st.button('Tạo nhu cầu', type='primary', on_click=_open_buyer_create, use_container_width=True)
+                    st.button('Tạo nhu cầu', type='primary', on_click=_open_buyer_create, width="stretch")
         elif title:
             st.title(title)
         notice = st.session_state.pop('_purchase_notice', None)

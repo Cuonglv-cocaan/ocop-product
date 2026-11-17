@@ -6,8 +6,6 @@ Products: DuckDB; leads: configurable business storage.
 from __future__ import annotations
 
 import html
-import importlib
-import inspect
 import math
 import sys
 from pathlib import Path
@@ -24,164 +22,18 @@ from data import auth
 from src.ui_labels import role_label
 from src.product_cards import money, star_label, source_badge, product_card_html
 from src.catalog_cache import catalog_version
-from src import chat_styles
-
-# A running Streamlit process may retain the module from before tokens existed.
-if not hasattr(chat_styles, 'COLOR_TOKENS'):
-    importlib.reload(chat_styles)
-COLOR_TOKENS = chat_styles.COLOR_TOKENS
+from src.styles import APP_STYLES
 from src import auth_ui
 from src import supplier_ui
 from src import purchase_ui
 from src import dashboard_ui
+from src.search import product_discovery
 from src import search as search_module
-
-# Streamlit can retain an imported module while rerunning the edited app.
-# Refresh the older discovery API once when upgrading a running session.
-if "key_prefix" not in inspect.signature(search_module.product_discovery).parameters:
-    importlib.reload(search_module)
-product_discovery = search_module.product_discovery
 
 st.set_page_config(page_title="OCOP Connect | Đặc sản Việt", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
-st.markdown('<style>' + COLOR_TOKENS + '</style>', unsafe_allow_html=True)
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-:root {--ocop-font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;}
-[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {
-    color:var(--ocop-text-muted)!important;font-size:12px;opacity:1;
-}
-[data-testid="stApp"] :is(input,textarea)::placeholder,
-[data-testid="stChatInput"] textarea::placeholder {color:var(--ocop-text-muted);opacity:1;}
-html, body, [data-testid="stApp"] {
-    font-family: var(--ocop-font);
-    -webkit-font-smoothing: antialiased;
-}
-[data-testid="stApp"] :is(h1, h2, h3, h4, h5, h6, p, label, input, textarea, button, select),
-[data-testid="stMarkdownContainer"],
-[data-testid="stChatMessage"],
-[data-testid="stChatInput"] textarea,
-[data-baseweb="select"],
-[data-baseweb="popover"] [role="option"],
-[role="dialog"] :is(h1, h2, h3, p, label, input, textarea, button) {
-    font-family: var(--ocop-font) !important;
-}
-[data-testid="stHeader"] {display: none;}
-[data-testid="stToolbar"] {display: none;}
-.block-container {
-    max-width: 1210px;
-    padding-top: 2rem;
-    padding-bottom: 3rem;
-}
-h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
-#MainMenu, footer {visibility:hidden;}
-.st-key-site_header .st-key-logo_home button {
-    padding:0;border:0;background:transparent;color:#164c38;box-shadow:none;
-    min-height:36px;justify-content:flex-start;
-}
-.st-key-site_header .st-key-logo_home button p {font-size:clamp(18px,2.1vw,25px);font-weight:800;white-space:nowrap;letter-spacing:-.7px;}
-.st-key-site_header .st-key-logo_home button:not(:disabled):hover {
-    background:transparent!important;color:var(--ocop-text-accent)!important;box-shadow:none;transform:none;
-}
-.st-key-site_header .st-key-logo_home button:focus-visible {outline:2px solid #39975f;outline-offset:4px;}
-.st-key-site_header .brand-tagline {font-size:12px;letter-spacing:.7px;color:var(--ocop-text-muted);font-weight:700;margin:0;}
-.st-key-site_header {padding:8px 0;}
-.st-key-site_header [data-testid="stHorizontalBlock"] {align-items:center;gap:2rem;}
-.st-key-site_header [data-testid="stColumn"] {min-width:0;}
-.st-key-site_header [data-testid="stVerticalBlock"] {gap:0;justify-content:center;}
-.st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) {margin:0;min-width:0;max-width:100%;}
-.st-key-site_header :is([data-baseweb="button-group"], [data-testid="stButtonGroupFlex"]) {width:100%;display:flex;flex-wrap:wrap;align-items:stretch;gap:4px;}
-.st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button {flex:1 1 auto;min-width:0;max-width:100%;height:auto;min-height:44px;padding:8px 12px;}
-.st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button p {white-space:normal;overflow-wrap:anywhere;font-size:13px;line-height:1.4;}
-@media(max-width:900px){
-    .st-key-site_header [data-testid="stHorizontalBlock"] {flex-wrap:wrap;gap:1rem;}
-    .st-key-site_header [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}
-    .st-key-site_header .st-key-logo_home button {margin-inline:auto;}
-}
-@media(max-width:480px){
-    .st-key-site_header :is([data-baseweb="button-group"], [data-testid="stButtonGroupFlex"]) {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
-    .st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button {width:100%;}
-}
-.hero {background:#F7F9F1;border:1px solid #eaf0e5;border-radius:22px;padding:40px 42px;min-height:290px;margin:12px 0 24px}
-.hero h1 {font-size:clamp(31px,4vw,50px);line-height:1.25;margin:13px 0;font-weight:800}
-.hero h1 span {color:var(--ocop-text-accent)}
-.hero p {font-size:14px;line-height:1.85;color:var(--ocop-text-muted)}
-.eyebrow {font-size:12px;font-weight:800;color:var(--ocop-text-accent);letter-spacing:2px}
-.info-strip {background:#eef6e9;border-radius:12px;padding:17px 18px;color:#315e40;font-size:13px;line-height:1.7;margin-top:12px}
-.section-kicker{font-size:12px;letter-spacing:2px;font-weight:800;color:var(--ocop-text-accent);text-transform:uppercase;margin-top:24px}
-.section-desc {font-size:13px;color:var(--ocop-text-muted);margin-top:-7px}
-.product-card {border:1px solid #e5ebe3;border-radius:14px;overflow:hidden;background:var(--ocop-surface-product);margin-bottom:4px;}
-.product-photo {width:100%;height:172px;object-fit:contain;background:var(--ocop-surface-product);display:block;padding:12px;box-sizing:border-box;border-bottom:1px solid #f0f0f0;}
-.product-card-body {padding:13px 14px 14px;display:flex;flex-direction:column;gap:8px}
-.product-card .product-category {height:30px;line-height:15px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.product-card .product-name {height:80.6px;min-height:0;margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow-wrap:anywhere}
-.product-card .product-meta {height:38px;margin:0;display:flex;align-items:center;flex-wrap:wrap;column-gap:8px;row-gap:4px;line-height:17px;overflow:hidden}
-.product-card .star-chip {display:inline-block;flex-shrink:0;white-space:nowrap}
-.product-card .product-price {height:27px;line-height:27px;margin:0;white-space:nowrap}
-.product-card .source-chip {height:24px;min-width:0;}
-.product-category {font-size:12px;letter-spacing:.5px;color:var(--ocop-text-accent);font-weight:800;text-transform:uppercase}
-.product-name {font-size:13px;font-weight:800;min-height:41px;color:var(--ocop-text-product);line-height:1.55;margin-top:6px}
-.product-meta{font-size:12px;color:var(--ocop-text-muted);margin-top:5px}
-.product-price{font-size:18px;color:#c62828;font-weight:800;margin:10px 0}
-.product-price-detail{font-size:26px;line-height:1.4}
-.star-chip {background:#fff4d9;color:#805500;font-weight:700;padding:4px 7px;border-radius:5px;font-size:12px}
-.star-chip-0 {background:#f1f3f5;color:#596579}
-.star-chip-4 {background:#e8f5ec;color:#216e39}
-.star-chip-5 {background:#fdebec;color:#b42332}
-.star-chip-detail {display:inline-block;font-size:14px;padding:6px 10px;margin:4px 0 8px}
-.source-chip {display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;line-height:16px;color:#59665e}
-.source-logo {width:28px;height:20px;object-fit:contain;flex-shrink:0;border-radius:3px;display:block}
-.source-name {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.stat {padding:15px 18px;border:1px solid #e7ede4;border-radius:14px;background:#fff}
-.stat strong{display:block;font-size:25px;color:#164c38}
-.stat small{font-size:12px;color:var(--ocop-text-muted)}
-.category-tile {background:#fff;border:1px solid #e3e9e5;border-radius:14px;text-align:center;padding:16px 10px;height:150px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
-.category-icon {font-size:30px;line-height:1;width:52px;height:52px;border-radius:14px;background:#f0f6f1;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.category-tile strong{display:flex;align-items:center;justify-content:center;color:#202720;font-size:12px;line-height:1.5;min-height:36px}
-.region-tile{border-radius:12px;background:#f3f8f1;border:1px solid #e0ecdf;padding:16px 18px;margin:6px 0;min-height:100px;box-sizing:border-box}
-.region-heading{display:flex;align-items:center;gap:8px}
-.region-icon{font-size:18px;line-height:1;flex-shrink:0}
-.region-name{margin:0!important;padding:0!important;font-size:17px!important;font-weight:700!important;line-height:1.4!important;color:var(--ocop-text-primary)!important}
-.region-count{display:flex;align-items:baseline;gap:5px;margin-top:8px;padding-left:26px}
-.region-count strong{font-size:20px;line-height:1.3;font-weight:700;color:#27583b;font-variant-numeric:tabular-nums}
-.region-count span{font-size:13px;color:#59665e;font-weight:400}
-.fineprint{font-size:12px;color:var(--ocop-text-muted);line-height:1.7}
-[data-testid="stApp"]:has(.st-key-business_workspace){background:#f4f6f5;color:#243b30;}
-.st-key-business_workspace{background:#fff;border:1px solid #dce3df;border-radius:12px;padding:24px;box-shadow:none;}
-.st-key-business_workspace [data-testid="stVerticalBlock"]{gap:16px;}
-.st-key-business_workspace h1{font-size:32px!important;line-height:1.25!important;font-weight:750!important;letter-spacing:-.5px;margin:0!important;padding:0 0 8px!important;}
-.st-key-business_workspace h2{font-size:22px!important;line-height:1.35!important;font-weight:700!important;letter-spacing:-.2px;margin:0!important;padding:8px 0 4px!important;}
-.st-key-business_workspace h3{font-size:18px!important;line-height:1.4!important;font-weight:700!important;letter-spacing:0;margin:0!important;padding:4px 0!important;}
-.st-key-business_workspace :is(p,label,input,textarea,button,[data-baseweb="select"]){font-size:15px!important;line-height:1.6!important;}
-.st-key-business_workspace [data-testid="stCaptionContainer"] p{font-size:14px!important;color:#52645a!important;}
-.st-key-business_workspace [data-testid="stForm"]{padding:16px;border:1px solid #dce3df;border-radius:12px;background:#fff;box-shadow:none;}
-.st-key-business_workspace [data-testid="stExpander"]{border:1px solid #dce3df;border-radius:10px;background:#fff;box-shadow:none;}
-.st-key-business_workspace [data-testid="stExpander"] summary{padding:12px 16px;font-weight:600;}
-.st-key-business_workspace [data-testid="stMetric"]{padding:12px 16px;border:1px solid #dce3df;border-radius:10px;background:#f7f9f8;}
-.st-key-business_workspace [data-testid="stMetricValue"]{font-size:26px;line-height:1.3;color:#123e2b;}
-.st-key-business_workspace :is(input,textarea){color:#243b30;background:#fff;}
-.st-key-business_workspace :is([data-baseweb="input"],[data-baseweb="textarea"],[data-baseweb="select"]>div){border:1px solid #b6c3bb;border-radius:10px;box-shadow:none;}
-.st-key-business_workspace [role="tab"]{padding:8px 16px;color:#46594e;border-radius:10px 10px 0 0;}
-.st-key-business_workspace [role="tab"][aria-selected="true"]{color:#14532d;background:#e5f2e9;font-weight:700;}
-.st-key-business_workspace [data-baseweb="tab-highlight"]{background:#195b3e;}
-.st-key-business_workspace :is(button,a,input,textarea,select,[role="tab"],[role="combobox"],summary):focus-visible{outline:3px solid #195b3e!important;outline-offset:3px!important;}
-.st-key-business_workspace :is([data-baseweb="input"],[data-baseweb="textarea"],[data-baseweb="select"]):focus-within{outline:3px solid #195b3e;outline-offset:2px;}
-@media(max-width:640px){.st-key-business_workspace{padding:16px;}.st-key-business_workspace h1{font-size:28px!important;}.st-key-business_workspace h2{font-size:20px!important;}}
-.st-key-account_bar{background:#f5f8f6;border:1px solid #e0e8e3;border-radius:12px;padding:10px 14px;margin-bottom:18px;}
-.st-key-account_bar [data-testid="stHorizontalBlock"]{align-items:center;gap:12px;}
-.account-identity{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-height:38px;font-size:14px;color:#123e2b;}
-.account-name{font-weight:700;overflow-wrap:anywhere;}
-.account-role{padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#dcfce7;color:#166534;}
-.account-role-admin{background:#ede9fe;color:#5b21b6;}
-.account-role-buyer{background:#dbeafe;color:#1e40af;}
-.st-key-account_bar [data-testid="stButton"] button{min-height:38px;white-space:nowrap;}
-@media(max-width:640px){.st-key-account_bar [data-testid="stHorizontalBlock"]{flex-wrap:nowrap;}.st-key-account_bar [data-testid="stColumn"]:first-child{flex:1 1 0!important;min-width:0!important;width:auto!important;}.st-key-account_bar [data-testid="stColumn"]:last-child{flex:0 0 auto!important;min-width:100px!important;width:auto!important;}}
-[data-testid="stButton"] button[kind="primary"] {background:#195b3e;border-color:#195b3e}
-[data-testid="stButton"] button {border-radius:9px}
-@media(max-width:720px){.hero{padding:22px}.product-photo{height:150px}.block-container{padding-left:1rem;padding-right:1rem}}
-</style>
-""", unsafe_allow_html=True)
+st.markdown(APP_STYLES, unsafe_allow_html=True)
+
 
 
 def escape(value: object) -> str:
@@ -250,7 +102,7 @@ def product_detail(p: dict):
     left, right = st.columns([1, 1.15], gap="medium")
     with left:
         if p["image_url"]:
-            st.image(p["image_url"], use_container_width=True)
+            st.image(p["image_url"], width="stretch")
         else:
             st.info("Chưa có ảnh sản phẩm")
     with right:
@@ -267,10 +119,10 @@ def product_detail(p: dict):
         st.write(p["description"] or "Chưa có mô tả.")
         st.caption(f"Nguồn: {p['source']} · Nhà bán: {p['brand'] or 'Chưa có thông tin'}")
         if p["source_url"]:
-            st.link_button("↗ Xem gian hàng / sàn TMĐT", p["source_url"], type="primary", use_container_width=True)
+            st.link_button("↗ Xem gian hàng / sàn TMĐT", p["source_url"], type="primary", width="stretch")
         else:
             st.info("Sản phẩm demo chưa có liên kết mua hàng.")
-        if (actor is None or actor['role'] == 'buyer') and st.button("Yêu cầu kết nối nhà cung cấp", key=f"ask_{p['source']}_{p['product_id']}", use_container_width=True):
+        if (actor is None or actor['role'] == 'buyer') and st.button("Yêu cầu kết nối nhà cung cấp", key=f"ask_{p['source']}_{p['product_id']}", width="stretch"):
             st.session_state['purchase_reference'] = {'source': p['source'], 'product_id': p['product_id'],
                                                        'title': p['product_name'], 'category': p['category_name']}
             st.session_state["page"] = "Nhu cầu"
@@ -279,7 +131,7 @@ def product_detail(p: dict):
 
 def product_card(p: dict):
     st.markdown(product_card_html(p), unsafe_allow_html=True)
-    if st.button("Xem chi tiết →", key=f"detail_{p['source']}_{p['product_id']}", use_container_width=True):
+    if st.button("Xem chi tiết →", key=f"detail_{p['source']}_{p['product_id']}", width="stretch"):
         product_detail(p)
 
 
@@ -348,7 +200,7 @@ def directory_listing():
     with reset:
         active = any(value != "Tất cả" for value in (cat, stars, province, source)) or sort != "Mặc định"
         st.button("Xóa bộ lọc", key="clear_filters", on_click=clear_product_filters,
-                  disabled=not active, use_container_width=True,
+                  disabled=not active, width="stretch",
                   help="Đặt lại bộ lọc và sắp xếp của danh sách sản phẩm. Giữ nguyên hội thoại AI.")
     filter_signature = (cat, stars, province, source, sort)
     if st.session_state.get('_catalog_filter_signature') != filter_signature:
@@ -382,13 +234,13 @@ def directory_listing():
         with previous:
             st.button('← Trang trước', key='catalog_previous', disabled=page_number == 1,
                       on_click=st.session_state.__setitem__, args=('catalog_page', page_number - 1),
-                      use_container_width=True)
+                      width="stretch")
         with selector:
             st.number_input('Trang', min_value=1, max_value=page_count, step=1, key='catalog_page')
         with following:
             st.button('Trang sau →', key='catalog_next', disabled=page_number == page_count,
                       on_click=st.session_state.__setitem__, args=('catalog_page', page_number + 1),
-                      use_container_width=True)
+                      width="stretch")
 
 
 def home(df: pd.DataFrame):
@@ -397,7 +249,7 @@ def home(df: pd.DataFrame):
         <p>Khám phá đặc sản địa phương, tìm nhà cung cấp và điều hướng đến sản phẩm trên các kênh thương mại điện tử trong một cổng thông tin thống nhất.</p>
         <div class="info-strip">🌱 Đa dạng sản phẩm vùng miền &nbsp; • &nbsp; 🧭 Tìm kiếm dễ dàng &nbsp; • &nbsp; 🤝 Kết nối nhà cung cấp</div></div>''', unsafe_allow_html=True)
     product_discovery()
-    if st.button("Khám phá sản phẩm →", type="primary", use_container_width=False):
+    if st.button("Khám phá sản phẩm →", type="primary", width="content"):
         st.session_state["page"] = "Sản phẩm OCOP"
         st.rerun()
     banners = [
@@ -407,7 +259,7 @@ def home(df: pd.DataFrame):
     ]
     for col, banner in zip(st.columns(3, gap="small"), banners):
         with col:
-            st.image(banner, use_container_width=True)
+            st.image(banner, width="stretch")
     stats = [ (str(len(df))+"+", "Sản phẩm"), (str(df["province_name"].nunique()), "Tỉnh/thành"), (str(df["category_name"].nunique()), "Danh mục"), (str(df["source"].nunique()), "Nguồn dữ liệu") ]
     for col, (num, label) in zip(st.columns(4, gap="small"), stats):
         with col:
@@ -440,7 +292,7 @@ def home(df: pd.DataFrame):
                     f'<div class="category-tile"><span class="category-icon">{icons.get(category, "📦")}</span><strong>{escape(category)}</strong></div>',
                     unsafe_allow_html=True,
                 )
-                if st.button("Khám phá →", key=f"cat_home_{category}", use_container_width=True):
+                if st.button("Khám phá →", key=f"cat_home_{category}", width="stretch"):
                     st.session_state["category"] = category
                     st.session_state["page"] = "Sản phẩm OCOP"
                     st.rerun()
@@ -455,7 +307,17 @@ def home(df: pd.DataFrame):
 def regions(df: pd.DataFrame):
     st.markdown('<div class="section-kicker">BẢN ĐỒ ĐẶC SẢN</div>', unsafe_allow_html=True)
     st.header("Khám phá theo địa phương")
+    name_filter = st.text_input("Lọc tên tỉnh/thành", key="region_name_filter").strip()
     grouped = df.groupby("province_name", as_index=False).agg(products=("product_id", "count"))
+    grouped = (
+        grouped.assign(is_unknown=grouped["province_name"].eq("Chưa cập nhật"))
+        .sort_values(["is_unknown", "products", "province_name"], ascending=[True, False, True])
+        .drop(columns="is_unknown")
+    )
+    if name_filter:
+        grouped = grouped[grouped["province_name"].str.contains(name_filter, case=False, regex=False, na=False)]
+    if grouped.empty:
+        st.info("Không tìm thấy tỉnh/thành phù hợp.")
     for start in range(0, len(grouped), 3):
         for col, row in zip(st.columns(3), grouped.iloc[start:start+3].to_dict("records")):
             with col:
@@ -465,7 +327,7 @@ def regions(df: pd.DataFrame):
                     f'<div class="region-count"><strong>{int(row["products"]):,}</strong><span>sản phẩm</span></div></div>',
                     unsafe_allow_html=True,
                 )
-                if st.button("Khám phá sản phẩm →", key=f"province_{row['province_name']}", use_container_width=True):
+                if st.button("Khám phá sản phẩm →", key=f"province_{row['province_name']}", width="stretch"):
                     st.session_state["province"] = row["province_name"]
                     st.session_state["page"] = "Sản phẩm OCOP"
                     st.rerun()
@@ -655,7 +517,7 @@ if st.session_state.get('auth_session') is not None:
             else:
                 st.caption('Chưa xác minh được tài khoản')
         with logout_col:
-            if st.button('Đăng xuất', key='logout', on_click=auth.logout, args=(st.session_state,), use_container_width=True):
+            if st.button('Đăng xuất', key='logout', on_click=auth.logout, args=(st.session_state,), width="stretch"):
                 st.rerun()
 
 current_page = st.session_state["page"]

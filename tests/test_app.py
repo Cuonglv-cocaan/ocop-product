@@ -1,4 +1,5 @@
 import unittest
+from textwrap import dedent
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -9,18 +10,15 @@ from data.database import COLUMNS
 
 
 class AppTests(unittest.TestCase):
-    def test_startup_refreshes_cached_chat_styles_without_tokens(self):
-        from src import chat_styles
-        tokens = chat_styles.COLOR_TOKENS
-        del chat_styles.COLOR_TOKENS
-        try:
-            with patch('data.database.read_products', return_value=pd.DataFrame(columns=COLUMNS)):
-                app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
+    def test_startup_injects_one_stylesheet_on_each_rerun(self):
+        from src.styles import APP_STYLES
+        with patch('data.database.read_products', return_value=pd.DataFrame(columns=COLUMNS)):
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
+            for _ in range(2):
                 app.run(timeout=20)
                 self.assertFalse(app.exception)
-                self.assertEqual(chat_styles.COLOR_TOKENS, tokens)
-        finally:
-            chat_styles.COLOR_TOKENS = tokens
+                styles = [m.value for m in app.markdown if '<style>' in m.value]
+                self.assertEqual(styles, [dedent(APP_STYLES).strip()])
 
     def test_directory_pagination_cache_and_filter_reset(self):
         rows = []
@@ -151,13 +149,10 @@ class AppTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(update.call_args.args[1:], (42, 'Updated old request'))
 
-    def test_directory_refreshes_cached_discovery_without_key_prefix(self):
+    def test_directory_discovery_uses_its_own_key_prefix(self):
         row = dict.fromkeys(COLUMNS, '')
         row.update(source='TIKI', product_id='1', product_name='Tea')
-        def legacy_discovery():
-            pass
-        with patch('data.database.read_products', return_value=pd.DataFrame([row])), \
-                patch('src.search.product_discovery', new=legacy_discovery):
+        with patch('data.database.read_products', return_value=pd.DataFrame([row])):
             app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py')).run(timeout=20)
             self.assertFalse(app.exception)
             next(b for b in app.button if b.label.startswith('Kh') and b.label.endswith('phẩm →')).click().run()

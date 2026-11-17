@@ -47,7 +47,7 @@ def product_card_html(product):
     esc = lambda value: html.escape(str(value or ''), quote=True)
     image_url = safe_url(product.get('image_url'))
     image = (f'<img class="product-photo" src="{esc(image_url)}" alt="Ảnh minh họa sản phẩm" loading="lazy">'
-             if image_url else '<div class="product-photo product-photo-placeholder">🌿</div>')
+             if image_url else '<div class="product-photo product-photo-placeholder" role="img" aria-label="Chưa có ảnh sản phẩm">🌿</div>')
     stars = product.get('ocop_stars')
     stars = int(stars) if stars in (3, 4, 5) else 0
     name = esc(product.get('product_name'))
