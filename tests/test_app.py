@@ -9,6 +9,19 @@ from data.database import COLUMNS
 
 
 class AppTests(unittest.TestCase):
+    def test_startup_refreshes_cached_chat_styles_without_tokens(self):
+        from src import chat_styles
+        tokens = chat_styles.COLOR_TOKENS
+        del chat_styles.COLOR_TOKENS
+        try:
+            with patch('data.database.read_products', return_value=pd.DataFrame(columns=COLUMNS)):
+                app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
+                app.run(timeout=20)
+                self.assertFalse(app.exception)
+                self.assertEqual(chat_styles.COLOR_TOKENS, tokens)
+        finally:
+            chat_styles.COLOR_TOKENS = tokens
+
     def test_directory_pagination_cache_and_filter_reset(self):
         rows = []
         for index in range(25):

@@ -24,7 +24,12 @@ from data import auth
 from src.ui_labels import role_label
 from src.product_cards import money, star_label, source_badge, product_card_html
 from src.catalog_cache import catalog_version
-from src.chat_styles import COLOR_TOKENS
+from src import chat_styles
+
+# A running Streamlit process may retain the module from before tokens existed.
+if not hasattr(chat_styles, 'COLOR_TOKENS'):
+    importlib.reload(chat_styles)
+COLOR_TOKENS = chat_styles.COLOR_TOKENS
 from src import auth_ui
 from src import supplier_ui
 from src import purchase_ui
