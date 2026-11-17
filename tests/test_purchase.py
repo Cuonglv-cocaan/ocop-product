@@ -54,6 +54,11 @@ class PurchaseIntegrationTests(unittest.TestCase):
         second = self.quote(request_id, match_a, quantity='2.345', unit_price='100.05', shipping_fee='3')
         rival = self.quote(request_id, match_b, self.seller2)
         detail = purchase.request_detail(self.buyer1, request_id)
+        self.assertEqual(next(e for e in detail['events'] if e['event_type'] == 'created')['actor_role'], 'buyer')
+        self.assertEqual(next(e for e in detail['events'] if e['event_type'] == 'assigned')['actor_role'], 'admin')
+        quoted_event = next(e for e in detail['events'] if e['event_type'] == 'quoted')
+        self.assertEqual(quoted_event['actor_role'], 'seller')
+        self.assertEqual(quoted_event['actor_supplier_name'], 'Test unit A')
         self.assertEqual([q['version'] for q in detail['quotes'] if q['match_id'] == match_a], [1, 2])
         self.assertEqual(next(q for q in detail['quotes'] if q['id'] == first)['status'], 'superseded')
         self.assertEqual(next(q for q in detail['quotes'] if q['id'] == second)['total_amount'], Decimal('237.62'))
@@ -79,6 +84,7 @@ class PurchaseIntegrationTests(unittest.TestCase):
         final = purchase.request_detail(self.buyer1, request_id)
         self.assertEqual(final['request']['status'], 'connected')
         self.assertEqual(final['events'][-1]['event_type'], 'connected')
+        self.assertEqual(final['events'][-1]['actor_role'], 'buyer')
 
     def test_other_buyer_cannot_read_edit_choose_or_close(self):
         request_id = self.demand(self.buyer2)

@@ -7,6 +7,10 @@ from data import auth
 
 
 class AdminMatchingDashboardUITests(unittest.TestCase):
+    def setUp(self):
+        import streamlit as st
+        st.cache_data.clear()
+
     def test_dashboard_blocks_buyer_and_seller_before_filters_or_data(self):
         for role in ('buyer', 'seller'):
             with self.subTest(role=role), \
@@ -23,7 +27,7 @@ class AdminMatchingDashboardUITests(unittest.TestCase):
                 dashboard.assert_not_called()
 
     def test_dashboard_empty_denominators_and_filters(self):
-        result = dict(created=0, assigned=0, selected=0, connected=0, cancelled=0, closed_no_match=0,
+        result = dict(created=0, assigned=0, quoted_requests=0, selected=0, connected=0, cancelled=0, closed_no_match=0,
                       quote_rate=None, median_first_quote_hours=None, suppliers=[],
                       viewed_at=datetime(2026, 11, 11, tzinfo=timezone.utc))
         with patch('data.postgres.transaction'), patch('data.auth.require_user'), \
@@ -32,11 +36,43 @@ class AdminMatchingDashboardUITests(unittest.TestCase):
             app = AppTest.from_string('from src.dashboard_ui import page\npage()').run()
             self.assertFalse(app.exception)
             self.assertEqual([m.value for m in app.metric][-2:], ['Chưa có dữ liệu', 'Chưa có dữ liệu'])
+            self.assertEqual(len(app.metric), 6)
+            self.assertTrue(all(m.proto.help for m in app.metric))
+            self.assertTrue(all(info.value == 'Chưa có dữ liệu' for info in app.info))
             self.assertEqual([w.label for w in app.selectbox], ['Nhà cung cấp'])
             self.assertEqual(dashboard.call_args.kwargs, dict(supplier_id=None))
             app.selectbox[0].select(1).run()
             self.assertFalse(app.exception)
             self.assertEqual(dashboard.call_args.kwargs, dict(supplier_id=1))
+
+    def test_dashboard_funnel_and_kpis_use_filtered_cohort_counts(self):
+        result = dict(created=5, assigned=5, quoted_requests=1, selected=3, connected=2,
+                      cancelled=1, closed_no_match=0, quote_rate=.2, median_first_quote_hours=0,
+                      suppliers=[dict(supplier_name='A', assigned=5, responded=1, quoted=1,
+                                      median_response_hours=None)],
+                      viewed_at=datetime(2026, 11, 11, tzinfo=timezone.utc))
+        with patch('data.postgres.transaction'), patch('data.auth.require_user'), \
+                patch('data.suppliers.list_suppliers', return_value=[dict(id=1, name='A')]), \
+                patch('data.metrics.dashboard', return_value=result):
+            app = AppTest.from_string('from src.dashboard_ui import page\npage()').run()
+            self.assertFalse(app.exception)
+            self.assertEqual([m.value for m in app.metric], ['5', '5', '1', '2', '20.0%', '0.00'])
+            charts = app.get('vega_lite_chart') or app.get('arrow_vega_lite_chart')
+            self.assertEqual(len(charts), 1)
+            self.assertEqual(app.dataframe[0].value.iloc[0]['Trung vị phản hồi (giờ)'], 'Chưa có dữ liệu')
+            app.selectbox[0].select(1).run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any('bước sau có thể lớn hơn' in c.value for c in app.caption))
+
+    def test_funnel_does_not_clamp_supplier_filtered_outcomes(self):
+        from src.dashboard_ui import _funnel
+        result = dict(created=5, assigned=5, quoted_requests=1, selected=3, connected=2)
+        with patch('src.dashboard_ui.st.subheader'), patch('src.dashboard_ui.st.caption'), \
+                patch('src.dashboard_ui.st.vega_lite_chart') as chart:
+            _funnel(result)
+        values = chart.call_args.kwargs['spec']['data']['values']
+        self.assertEqual([v['count'] for v in values], [5, 5, 1, 3, 2])
+        self.assertEqual(values[-1]['share'], .4)
 
     def test_matching_display_is_read_only_and_requires_confirmation(self):
         candidate = dict(supplier_id=1, supplier_name='A', is_demo=False, score=75,

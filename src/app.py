@@ -23,6 +23,8 @@ from data.leads import save_lead, LeadStorageError
 from data import auth
 from src.ui_labels import role_label
 from src.product_cards import money, star_label, source_badge, product_card_html
+from src.catalog_cache import catalog_version
+from src.chat_styles import COLOR_TOKENS
 from src import auth_ui
 from src import supplier_ui
 from src import purchase_ui
@@ -37,10 +39,16 @@ product_discovery = search_module.product_discovery
 
 st.set_page_config(page_title="OCOP Connect | Đặc sản Việt", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
+st.markdown('<style>' + COLOR_TOKENS + '</style>', unsafe_allow_html=True)
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 :root {--ocop-font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;}
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {
+    color:var(--ocop-text-muted)!important;font-size:12px;opacity:1;
+}
+[data-testid="stApp"] :is(input,textarea)::placeholder,
+[data-testid="stChatInput"] textarea::placeholder {color:var(--ocop-text-muted);opacity:1;}
 html, body, [data-testid="stApp"] {
     font-family: var(--ocop-font);
     -webkit-font-smoothing: antialiased;
@@ -63,24 +71,20 @@ html, body, [data-testid="stApp"] {
 }
 h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 #MainMenu, footer {visibility:hidden;}
-.logo-link, .logo-link:visited {display:inline-block;max-width:100%;text-decoration:none;color:#164c38;}
-[data-testid="stMarkdownContainer"] a.logo-link,
-[data-testid="stMarkdownContainer"] a.logo-link:link,
-[data-testid="stMarkdownContainer"] a.logo-link:visited,
-[data-testid="stMarkdownContainer"] a.logo-link:hover,
-[data-testid="stMarkdownContainer"] a.logo-link:focus,
-[data-testid="stMarkdownContainer"] a.logo-link:active,
-[data-testid="stMarkdownContainer"] a.logo-link * {text-decoration:none !important;}
-.logo-link:focus-visible {outline:2px solid #39975f;outline-offset:4px;border-radius:4px;}
-[data-testid="stMarkdownContainer"] a.logo-link {color:#164c38 !important;display:inline-flex;flex-direction:column;max-width:100%;}
-[data-testid="stMarkdownContainer"] .logo-link .site-brand {display:block;font-weight:800;font-size:clamp(18px,2.1vw,25px);color:#164c38 !important;margin:0;letter-spacing:-.7px;white-space:nowrap;line-height:1.4;}
-[data-testid="stMarkdownContainer"] .logo-link .brand-accent {color:#39975f !important;}
-[data-testid="stMarkdownContainer"] .logo-link .tagline {display:block;font-size:9px;letter-spacing:.7px;color:#809385 !important;font-weight:700;margin-top:2px;line-height:1.5;}
+.st-key-site_header .st-key-logo_home button {
+    padding:0;border:0;background:transparent;color:#164c38;box-shadow:none;
+    min-height:36px;justify-content:flex-start;
+}
+.st-key-site_header .st-key-logo_home button p {font-size:clamp(18px,2.1vw,25px);font-weight:800;white-space:nowrap;letter-spacing:-.7px;}
+.st-key-site_header .st-key-logo_home button:not(:disabled):hover {
+    background:transparent!important;color:var(--ocop-text-accent)!important;box-shadow:none;transform:none;
+}
+.st-key-site_header .st-key-logo_home button:focus-visible {outline:2px solid #39975f;outline-offset:4px;}
+.st-key-site_header .brand-tagline {font-size:12px;letter-spacing:.7px;color:var(--ocop-text-muted);font-weight:700;margin:0;}
 .st-key-site_header {padding:8px 0;}
 .st-key-site_header [data-testid="stHorizontalBlock"] {align-items:center;gap:2rem;}
 .st-key-site_header [data-testid="stColumn"] {min-width:0;}
 .st-key-site_header [data-testid="stVerticalBlock"] {gap:0;justify-content:center;}
-.st-key-site_header .logo-link {display:flex;flex-direction:column;justify-content:center;width:fit-content;}
 .st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) {margin:0;min-width:0;max-width:100%;}
 .st-key-site_header :is([data-baseweb="button-group"], [data-testid="stButtonGroupFlex"]) {width:100%;display:flex;flex-wrap:wrap;align-items:stretch;gap:4px;}
 .st-key-site_header :is([data-testid="stSegmentedControl"], [data-testid="stButtonGroup"]) button {flex:1 1 auto;min-width:0;max-width:100%;height:auto;min-height:44px;padding:8px 12px;}
@@ -88,7 +92,7 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 @media(max-width:900px){
     .st-key-site_header [data-testid="stHorizontalBlock"] {flex-wrap:wrap;gap:1rem;}
     .st-key-site_header [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}
-    .st-key-site_header .logo-link {margin-inline:auto;text-align:center;}
+    .st-key-site_header .st-key-logo_home button {margin-inline:auto;}
 }
 @media(max-width:480px){
     .st-key-site_header :is([data-baseweb="button-group"], [data-testid="stButtonGroupFlex"]) {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
@@ -96,14 +100,14 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 }
 .hero {background:#F7F9F1;border:1px solid #eaf0e5;border-radius:22px;padding:40px 42px;min-height:290px;margin:12px 0 24px}
 .hero h1 {font-size:clamp(31px,4vw,50px);line-height:1.25;margin:13px 0;font-weight:800}
-.hero h1 span {color:#2d8459}
-.hero p {font-size:14px;line-height:1.85;color:#62796b}
-.eyebrow {font-size:11px;font-weight:800;color:#2c8556;letter-spacing:2px}
+.hero h1 span {color:var(--ocop-text-accent)}
+.hero p {font-size:14px;line-height:1.85;color:var(--ocop-text-muted)}
+.eyebrow {font-size:12px;font-weight:800;color:var(--ocop-text-accent);letter-spacing:2px}
 .info-strip {background:#eef6e9;border-radius:12px;padding:17px 18px;color:#315e40;font-size:13px;line-height:1.7;margin-top:12px}
-.section-kicker{font-size:11px;letter-spacing:2px;font-weight:800;color:#2b8857;text-transform:uppercase;margin-top:24px}
-.section-desc {font-size:13px;color:#708176;margin-top:-7px}
-.product-card {border:1px solid #e5ebe3;border-radius:14px;overflow:hidden;background:white;margin-bottom:4px;}
-.product-photo {width:100%;height:172px;object-fit:contain;background:#fff;display:block;padding:12px;box-sizing:border-box;border-bottom:1px solid #f0f0f0;}
+.section-kicker{font-size:12px;letter-spacing:2px;font-weight:800;color:var(--ocop-text-accent);text-transform:uppercase;margin-top:24px}
+.section-desc {font-size:13px;color:var(--ocop-text-muted);margin-top:-7px}
+.product-card {border:1px solid #e5ebe3;border-radius:14px;overflow:hidden;background:var(--ocop-surface-product);margin-bottom:4px;}
+.product-photo {width:100%;height:172px;object-fit:contain;background:var(--ocop-surface-product);display:block;padding:12px;box-sizing:border-box;border-bottom:1px solid #f0f0f0;}
 .product-card-body {padding:13px 14px 14px;display:flex;flex-direction:column;gap:8px}
 .product-card .product-category {height:30px;line-height:15px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .product-card .product-name {height:80.6px;min-height:0;margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow-wrap:anywhere}
@@ -111,33 +115,33 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 .product-card .star-chip {display:inline-block;flex-shrink:0;white-space:nowrap}
 .product-card .product-price {height:27px;line-height:27px;margin:0;white-space:nowrap}
 .product-card .source-chip {height:24px;min-width:0;}
-.product-category {font-size:10px;letter-spacing:.5px;color:#39835b;font-weight:800;text-transform:uppercase}
-.product-name {font-size:13px;font-weight:800;min-height:41px;color:#000;line-height:1.55;margin-top:6px}
-.product-meta{font-size:11px;color:#819186;margin-top:5px}
+.product-category {font-size:12px;letter-spacing:.5px;color:var(--ocop-text-accent);font-weight:800;text-transform:uppercase}
+.product-name {font-size:13px;font-weight:800;min-height:41px;color:var(--ocop-text-product);line-height:1.55;margin-top:6px}
+.product-meta{font-size:12px;color:var(--ocop-text-muted);margin-top:5px}
 .product-price{font-size:18px;color:#c62828;font-weight:800;margin:10px 0}
 .product-price-detail{font-size:26px;line-height:1.4}
-.star-chip {background:#fff4d9;color:#9c6a09;font-weight:700;padding:4px 7px;border-radius:5px;font-size:10px}
-.star-chip-0 {background:#f1f3f5;color:#667085}
+.star-chip {background:#fff4d9;color:#805500;font-weight:700;padding:4px 7px;border-radius:5px;font-size:12px}
+.star-chip-0 {background:#f1f3f5;color:#596579}
 .star-chip-4 {background:#e8f5ec;color:#216e39}
 .star-chip-5 {background:#fdebec;color:#b42332}
 .star-chip-detail {display:inline-block;font-size:14px;padding:6px 10px;margin:4px 0 8px}
-.source-chip {display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;line-height:16px;color:#59665e}
+.source-chip {display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;line-height:16px;color:#59665e}
 .source-logo {width:28px;height:20px;object-fit:contain;flex-shrink:0;border-radius:3px;display:block}
 .source-name {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stat {padding:15px 18px;border:1px solid #e7ede4;border-radius:14px;background:#fff}
 .stat strong{display:block;font-size:25px;color:#164c38}
-.stat small{font-size:11px;color:#789082}
+.stat small{font-size:12px;color:var(--ocop-text-muted)}
 .category-tile {background:#fff;border:1px solid #e3e9e5;border-radius:14px;text-align:center;padding:16px 10px;height:150px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
 .category-icon {font-size:30px;line-height:1;width:52px;height:52px;border-radius:14px;background:#f0f6f1;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .category-tile strong{display:flex;align-items:center;justify-content:center;color:#202720;font-size:12px;line-height:1.5;min-height:36px}
 .region-tile{border-radius:12px;background:#f3f8f1;border:1px solid #e0ecdf;padding:16px 18px;margin:6px 0;min-height:100px;box-sizing:border-box}
 .region-heading{display:flex;align-items:center;gap:8px}
 .region-icon{font-size:18px;line-height:1;flex-shrink:0}
-.region-name{margin:0!important;padding:0!important;font-size:17px!important;font-weight:700!important;line-height:1.4!important;color:#000!important}
+.region-name{margin:0!important;padding:0!important;font-size:17px!important;font-weight:700!important;line-height:1.4!important;color:var(--ocop-text-primary)!important}
 .region-count{display:flex;align-items:baseline;gap:5px;margin-top:8px;padding-left:26px}
 .region-count strong{font-size:20px;line-height:1.3;font-weight:700;color:#27583b;font-variant-numeric:tabular-nums}
 .region-count span{font-size:13px;color:#59665e;font-weight:400}
-.fineprint{font-size:11px;color:#77877c;line-height:1.7}
+.fineprint{font-size:12px;color:var(--ocop-text-muted);line-height:1.7}
 [data-testid="stApp"]:has(.st-key-business_workspace){background:#f4f6f5;color:#243b30;}
 .st-key-business_workspace{background:#fff;border:1px solid #dce3df;border-radius:12px;padding:24px;box-shadow:none;}
 .st-key-business_workspace [data-testid="stVerticalBlock"]{gap:16px;}
@@ -188,7 +192,9 @@ def valid_http_url(value: object) -> str:
     return url if parts.scheme in ("http", "https") and parts.netloc else ""
 
 
-def load_products() -> pd.DataFrame:
+@st.cache_data(ttl=600, max_entries=8, show_spinner=False)
+def load_products(catalog_signature=None) -> pd.DataFrame:
+    """catalog_signature is a cache key supplied from catalog_version()."""
     df = read_products().fillna("")
 
     required = {
@@ -278,6 +284,11 @@ def clear_product_filters():
         "province": "Tất cả", "source_filter": "Tất cả", "product_sort": "Mặc định",
     }.items():
         st.session_state[key] = value
+    reset_catalog_page()
+
+
+def reset_catalog_page():
+    st.session_state['catalog_page'] = 1
 
 
 def source_label(source: str) -> str:
@@ -290,21 +301,28 @@ def directory(df: pd.DataFrame):
     st.markdown('<div class="section-desc">Tìm kiếm, so sánh và kết nối đến nguồn bán từ nhiều kênh thương mại điện tử.</div>', unsafe_allow_html=True)
 
     product_discovery(key_prefix="directory_discovery")
+    directory_listing()
+
+
+@st.fragment
+def directory_listing():
+    # Re-check the file on fragment runs as well as full application runs.
+    df = load_products(catalog_version())
     st.subheader("Danh sách sản phẩm")
     st.caption("Lọc danh sách theo danh mục, hạng OCOP, tỉnh/thành và nguồn. Gợi ý AI ở trên hoạt động độc lập.")
     c2, c3, c4, c5 = st.columns([1.5, 1, 1.2, 1.1], gap="small")
     with c2:
         categories = ["Tất cả"] + sorted(df["category_name"].astype(str).unique().tolist())
-        cat = st.selectbox("Danh mục", categories, key="category")
+        cat = st.selectbox("Danh mục", categories, key="category", on_change=reset_catalog_page)
     with c3:
         star_options = {"3 sao": 3, "4 sao": 4, "5 sao": 5, "Chưa cập nhật": 0}
-        stars = st.selectbox("Hạng OCOP", ["Tất cả", *star_options], key="stars_filter")
+        stars = st.selectbox("Hạng OCOP", ["Tất cả", *star_options], key="stars_filter", on_change=reset_catalog_page)
     with c4:
         provinces = ["Tất cả"] + sorted(df["province_name"].astype(str).unique().tolist())
-        province = st.selectbox("Tỉnh/Thành", provinces, key="province")
+        province = st.selectbox("Tỉnh/Thành", provinces, key="province", on_change=reset_catalog_page)
     with c5:
         sources = ["Tất cả"] + sorted(df["source"].unique().tolist())
-        source = st.selectbox("Nguồn", sources, format_func=source_label, key="source_filter")
+        source = st.selectbox("Nguồn", sources, format_func=source_label, key="source_filter", on_change=reset_catalog_page)
 
     filtered = df.copy()
     if cat != "Tất cả":
@@ -321,28 +339,51 @@ def directory(df: pd.DataFrame):
         st.caption(f"Hiển thị {len(filtered)} / {len(df)} sản phẩm")
     with b:
         sort = st.selectbox("Sắp xếp", ["Mặc định", "Giá tăng dần", "Giá giảm dần", "Sao cao nhất"],
-                            label_visibility="collapsed", key="product_sort")
+                            label_visibility="collapsed", key="product_sort", on_change=reset_catalog_page)
     with reset:
         active = any(value != "Tất cả" for value in (cat, stars, province, source)) or sort != "Mặc định"
         st.button("Xóa bộ lọc", key="clear_filters", on_click=clear_product_filters,
                   disabled=not active, use_container_width=True,
                   help="Đặt lại bộ lọc và sắp xếp của danh sách sản phẩm. Giữ nguyên hội thoại AI.")
+    filter_signature = (cat, stars, province, source, sort)
+    if st.session_state.get('_catalog_filter_signature') != filter_signature:
+        reset_catalog_page()
+        st.session_state['_catalog_filter_signature'] = filter_signature
     if sort == "Giá tăng dần":
-        filtered = filtered.sort_values("price")
+        filtered = filtered.sort_values("price", kind='stable')
     elif sort == "Giá giảm dần":
-        filtered = filtered.sort_values("price", ascending=False)
+        filtered = filtered.sort_values("price", ascending=False, kind='stable')
     elif sort == "Sao cao nhất":
-        filtered = filtered.sort_values("ocop_stars", ascending=False)
+        filtered = filtered.sort_values("ocop_stars", ascending=False, kind='stable')
 
     if filtered.empty:
+        reset_catalog_page()
         st.warning("Không tìm thấy sản phẩm phù hợp. Hãy thử bộ lọc khác.")
         return
-    rows = filtered.to_dict("records")
+    page_size = 12
+    page_count = math.ceil(len(filtered) / page_size)
+    page_number = max(1, min(st.session_state.get('catalog_page', 1), page_count))
+    st.session_state['catalog_page'] = page_number
+    first = (page_number - 1) * page_size
+    st.caption(f'Trang {page_number} / {page_count} · Sản phẩm {first + 1}–{min(first + page_size, len(filtered))} trong {len(filtered)} kết quả')
+    rows = filtered.iloc[first:first + page_size].to_dict("records")
     for start in range(0, len(rows), 4):
         cols = st.columns(4, gap="medium")
         for col, p in zip(cols, rows[start:start+4]):
             with col:
                 product_card(p)
+    if page_count > 1:
+        previous, selector, following = st.columns([1, 1, 1], vertical_alignment='bottom')
+        with previous:
+            st.button('← Trang trước', key='catalog_previous', disabled=page_number == 1,
+                      on_click=st.session_state.__setitem__, args=('catalog_page', page_number - 1),
+                      use_container_width=True)
+        with selector:
+            st.number_input('Trang', min_value=1, max_value=page_count, step=1, key='catalog_page')
+        with following:
+            st.button('Trang sau →', key='catalog_next', disabled=page_number == page_count,
+                      on_click=st.session_state.__setitem__, args=('catalog_page', page_number + 1),
+                      use_container_width=True)
 
 
 def home(df: pd.DataFrame):
@@ -508,17 +549,43 @@ def connect():
     auth_ui.requests_page(embedded=True)
 
 
+PAGE_SLUGS = {
+    'Trang chủ': 'home', 'Sản phẩm OCOP': 'products', 'Vùng miền': 'regions',
+    'Nhu cầu mua hàng': 'demand', 'Đăng nhập': 'login',
+    'Yêu cầu báo giá': 'quotes', 'Quản lý cung ứng': 'supply',
+    'Đăng ký cung cấp': 'supplier-registration', 'Quản trị': 'admin',
+    'Hiệu quả kết nối': 'dashboard',
+    'Kết nối cung cầu': 'connection', 'Nhu cầu': 'requests',
+}
+SLUG_PAGES = {slug: page for page, slug in PAGE_SLUGS.items()}
+
+
+def sync_page_url():
+    slug = PAGE_SLUGS.get(st.session_state['page'], 'home')
+    if st.query_params.get('page') != slug:
+        st.query_params['page'] = slug
+    st.session_state['_last_page_slug'] = slug
+
+
+def navigate(page):
+    st.session_state['page'] = page
+    sync_page_url()
+
+
 def sync_navigation():
     selected = st.session_state.get("navigation_page")
     if selected is not None:
-        st.session_state["page"] = selected
+        navigate(selected)
 
 
 actor = auth_ui.identity()
-if "page" not in st.session_state:
-    st.session_state["page"] = "Trang chủ"
+url_slug = st.query_params.get('page')
+if 'page' not in st.session_state:
+    st.session_state['page'] = SLUG_PAGES.get(url_slug, 'Trang chủ')
+elif '_last_page_slug' in st.session_state and url_slug != st.session_state['_last_page_slug']:
+    st.session_state['page'] = SLUG_PAGES.get(url_slug, 'Trang chủ')
 try:
-    products = load_products()
+    products = load_products(catalog_version())
     catalog_ready = not products.empty
     if products.empty:
         st.warning("Chưa có sản phẩm trong database đang được cấu hình.")
@@ -531,10 +598,9 @@ except Exception as exc:
 with st.container(key="site_header"):
     head_a, head_b = st.columns([1.15, 2.85], gap="large", vertical_alignment="center")
 with head_a:
-    st.markdown(
-        '<a href="?page=home" class="logo-link" target="_self" aria-label="OCOP Connect - Trang chủ"><span class="site-brand">🌿 OCOP <span class="brand-accent">Connect</span></span><span class="tagline">ĐẶC SẢN VIỆT · KẾT NỐI MUÔN NƠI</span></a>',
-        unsafe_allow_html=True,
-    )
+    st.button('🌿 OCOP Connect', key='logo_home', on_click=navigate, args=('Trang chủ',),
+              help='Về trang chủ')
+    st.markdown('<div class="brand-tagline">ĐẶC SẢN VIỆT · KẾT NỐI MUÔN NƠI</div>', unsafe_allow_html=True)
 with head_b:
     pages = ["Trang chủ", "Sản phẩm OCOP", "Vùng miền", "Kết nối cung cầu", "Nhu cầu"]
     if actor and actor['role'] == 'buyer':
@@ -565,6 +631,7 @@ with head_b:
         pages.append('Hiệu quả kết nối')
     if st.session_state['page'] not in pages:
         st.session_state['page'] = 'Trang chủ'
+    sync_page_url()
     st.session_state["navigation_page"] = st.session_state["page"]
     st.segmented_control("Điều hướng", options=pages, key="navigation_page", on_change=sync_navigation, label_visibility="collapsed", width="stretch")
 st.divider()

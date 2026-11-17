@@ -7,6 +7,7 @@ import math
 import os
 import re
 import html
+from time import monotonic
 from functools import lru_cache
 from urllib.parse import urlparse
 
@@ -624,9 +625,29 @@ def product_discovery(key_prefix: str = "discovery"):
 
 def _new_chat():
     if st.session_state.get('chat_dirty'):
-        st.session_state['chat_notice'] = 'Hãy lưu lại lịch sử trước khi bắt đầu hội thoại mới.'
-        return
+        st.session_state['_chat_confirm_new'] = True
+    else:
+        _reset_chat()
+
+
+def _reset_chat():
     st.session_state.update(discovery_messages=[], chat_id=None, chat_revision=0, chat_dirty=False)
+    for key in ('chat_notice', '_chat_confirm_new', '_chat_retry_at', '_chat_suggested_question'):
+        st.session_state.pop(key, None)
+
+
+@st.dialog('Bắt đầu cuộc trò chuyện mới?')
+def _confirm_new_chat():
+    st.write('Cuộc trò chuyện hiện tại chưa lưu được. Nếu bắt đầu mới, phần chưa lưu sẽ không còn '
+             'hiển thị và không được thử lưu lại. Bạn có muốn tiếp tục?')
+    keep, start = st.columns(2)
+    with keep:
+        if st.button('Tiếp tục trò chuyện', key='cancel_new_chat', use_container_width=True):
+            st.rerun()
+    with start:
+        if st.button('Bắt đầu mới', key='confirm_new_chat', type='primary',
+                     on_click=_reset_chat, use_container_width=True):
+            st.rerun()
 
 
 def _save_chat(messages):
@@ -637,25 +658,31 @@ def _save_chat(messages):
     try:
         revision = chat.save_conversation(session, conversation_id, messages,
                                           st.session_state.get('chat_revision', 0), session_key=session_key)
-    except ValueError as error:
-        st.session_state['chat_dirty'] = True
-        st.session_state['chat_notice'] = str(error)
     except Exception:
         logger.exception('Chat save failed')
         st.session_state['chat_dirty'] = True
+        st.session_state['_chat_retry_at'] = monotonic() + 30
     else:
         st.session_state.update(chat_revision=revision, chat_dirty=False)
+        st.session_state.pop('_chat_retry_at', None)
+        st.session_state.pop('chat_notice', None)
 
 
 def _history_controls(prefix):
+    if (st.session_state.get('chat_dirty') and
+            monotonic() >= st.session_state.get('_chat_retry_at', 0)):
+        _save_chat(st.session_state['discovery_messages'])
     if st.session_state.get('chat_dirty'):
-        st.warning('Có tin nhắn chưa lưu. Hãy thử lưu lại.')
-        if st.button('Lưu lại lịch sử', key=f'{prefix}_retry'):
+        st.warning('Chưa lưu được cuộc trò chuyện, sẽ thử lại')
+        if st.button('Thử lại', key=f'{prefix}_retry'):
             _save_chat(st.session_state['discovery_messages'])
             st.session_state['_chat_refresh'] = True
-    notice = st.session_state.pop('chat_notice', None)
-    if notice:
-        st.warning(notice)
+    if st.session_state.pop('_chat_confirm_new', False):
+        if st.session_state.get('chat_dirty'):
+            _confirm_new_chat()
+        else:
+            _reset_chat()
+            st.session_state['_chat_refresh'] = True
 
 
 def floating_chat():

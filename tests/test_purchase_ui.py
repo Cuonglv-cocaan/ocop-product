@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,6 +11,122 @@ from data.database import COLUMNS
 
 
 class PurchaseUITests(unittest.TestCase):
+    def test_connected_dialog_requires_confirmation_and_cancel_does_not_write(self):
+        detail = self.detail()
+        detail['request']['status'] = 'selected'
+        detail['request']['selected_quote_id'] = 1
+        with patch('data.purchase.list_requests', return_value=[detail['request']]), \
+                patch('data.purchase.request_detail', return_value=detail), \
+                patch('data.purchase.close_request') as close:
+            app = self.app().run(timeout=20)
+            next(b for b in app.button if b.label == 'Xác nhận đã kết nối để trao đổi').click().run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any(i.value == 'Chỉ xác nhận đã trao đổi, không xác nhận thanh toán hay giao hàng' for i in app.info))
+            close.assert_not_called()
+            app.button(key='cancel_connected_1').click().run()
+            self.assertFalse(app.exception)
+            close.assert_not_called()
+            next(b for b in app.button if b.label == 'Xác nhận đã kết nối để trao đổi').click().run()
+            app.button(key='confirm_connected_1').click().run()
+            self.assertFalse(app.exception)
+            close.assert_called_once_with(app.session_state['auth_session'], 1, 'connected')
+            self.assertTrue(app.success)
+
+    def test_timeline_roles_company_and_user_content_are_escaped(self):
+        from src.purchase_ui import _history_timeline
+        events = [dict(actor_id=987, actor_role='seller', actor_supplier_name='<Unit A>',
+                       event_type='declined', content='<script>bad</script>',
+                       created_at=datetime.now(purchase.ZONE)),
+                  dict(actor_id=123, actor_role='admin', actor_supplier_name=None,
+                       event_type='assigned', content='Đã phân nhà cung cấp.',
+                       created_at=datetime.now(purchase.ZONE))]
+        with patch('src.purchase_ui.st.markdown') as render:
+            _history_timeline(events)
+        markup = render.call_args.args[0]
+        self.assertIn('Nhà cung cấp · &lt;Unit A&gt;', markup)
+        self.assertIn('Quản trị viên', markup)
+        self.assertIn('&lt;script&gt;', markup)
+        self.assertNotIn('<script>', markup)
+        self.assertNotIn('#987', markup)
+        self.assertIn('<ol class="request-timeline"', markup)
+
+    def test_buyer_quote_cards_badges_and_six_column_comparison(self):
+        detail = self.detail()
+        base = detail['quotes'][0]
+        earlier = purchase.today() + timedelta(days=2)
+        detail['quotes'] = [
+            dict(base, id=1, supplier_name='A', total_amount='1000'),
+            dict(base, id=2, supplier_name='B', total_amount='900', expected_delivery=earlier),
+            dict(base, id=3, supplier_name='Expired', total_amount='10',
+                 valid_until=datetime.now(purchase.ZONE) - timedelta(seconds=1)),
+            dict(base, id=4, supplier_name='D', total_amount='900', expected_delivery=earlier),
+            dict(base, id=5, supplier_name='Suspended', total_amount='1', supplier_status='suspended'),
+        ]
+        with patch('data.purchase.list_requests', return_value=[detail['request']]), \
+                patch('data.purchase.request_detail', return_value=detail), \
+                patch('data.purchase.select_quote') as select:
+            app = self.app().run(timeout=20)
+            self.assertFalse(app.exception)
+            table = next(frame.value for frame in app.dataframe if 'Đơn giá' in frame.value.columns)
+            self.assertEqual(list(table.columns), ['Đơn vị', 'Số lượng', 'Đơn giá', 'Tổng tiền', 'Giao dự kiến', 'Trạng thái'])
+            self.assertEqual([name for name in table['Đơn vị'] if 'Rẻ nhất' in name],
+                             ['B · Rẻ nhất · Giao sớm nhất', 'D · Rẻ nhất · Giao sớm nhất'])
+            self.assertEqual(len([e for e in app.expander if e.label.startswith('Chi tiết #')]), 5)
+            radio = next(w for w in app.radio if w.label == 'Phương án muốn chọn')
+            self.assertEqual(len(radio.options), 3)
+            self.assertFalse(any('Expired' in o or 'Suspended' in o for o in radio.options))
+            radio.set_value(4)
+            next(b for b in app.button if b.label == 'Chọn phương án').click().run()
+            self.assertTrue(app.error)
+            select.assert_not_called()
+            next(w for w in app.checkbox if 'Tôi hiểu' in w.label).check()
+            next(b for b in app.button if b.label == 'Chọn phương án').click().run()
+            self.assertFalse(app.exception)
+            select.assert_called_once_with(app.session_state['auth_session'], 1, 4)
+
+    def test_request_table_selection_maps_position_to_visible_request_id(self):
+        from src.purchase_ui import _request_selector
+        rows = [dict(self.detail()['request'], id=10), dict(self.detail()['request'], id=20)]
+        state = {}
+        with patch('src.purchase_ui.st.session_state', state), patch('src.purchase_ui.st.caption'), \
+                patch('src.purchase_ui.st.dataframe', return_value={'selection': {'rows': [1]}}) as table:
+            self.assertEqual(_request_selector(rows, 'buyer'), 20)
+            self.assertEqual(table.call_args.kwargs['selection_mode'], 'single-row')
+            self.assertEqual(table.call_args.kwargs['on_select'], 'rerun')
+            original_key = table.call_args.kwargs['key']
+            table.return_value = {'selection': {'rows': []}}
+            self.assertEqual(_request_selector(rows[:1], 'buyer'), 10)
+            self.assertNotEqual(table.call_args.kwargs['key'], original_key)
+
+    def test_details_tabs_respect_roles(self):
+        detail = self.detail()
+        source = '''import streamlit as st
+from src.purchase_ui import page
+st.session_state['auth_session'] = object()
+page()
+'''
+        for role in ('buyer', 'seller', 'admin'):
+            with self.subTest(role=role), \
+                    patch('data.auth.current_user', return_value={'id': 1, 'role': role}), \
+                    patch('data.purchase.list_requests', return_value=[detail['request']]), \
+                    patch('data.purchase.request_detail', return_value=detail), \
+                    patch('data.suppliers.list_suppliers', return_value=[]), \
+                    patch('src.purchase_ui._matching') as matching:
+                app = AppTest.from_string(source).run(timeout=20)
+                self.assertFalse(app.exception)
+                expected = ['Tổng quan', 'Báo giá', 'Liên hệ & lịch sử']
+                if role == 'admin':
+                    expected.append('Phân công')
+                self.assertEqual([t.label for t in app.tabs], expected)
+                self.assertFalse(any(w.label in ('Chọn yêu cầu', 'Phiếu nhu cầu') for w in app.selectbox))
+                if role != 'admin':
+                    matching.assert_not_called()
+                    self.assertFalse(any(b.label == 'Phân nhà cung cấp' for b in app.button))
+
+    def setUp(self):
+        import streamlit as st
+        st.cache_data.clear()
+
     def test_buyer_list_or_empty_state_prioritizes_create_button_not_form(self):
         detail = self.detail()
         for rows in ([], [detail['request']]):
@@ -111,7 +228,8 @@ class PurchaseUITests(unittest.TestCase):
                 patch('data.purchase.request_detail', side_effect=lambda session, rid: first if rid == 1 else second):
             app = self.app('seller').run(timeout=20)
             next(w for w in app.text_input if w.label == 'Đơn giá VND').set_value('999')
-            next(w for w in app.selectbox if w.label == 'Chọn yêu cầu').select(2).run()
+            app.session_state['purchase_focus'] = 2
+            app.run()
             self.assertFalse(app.exception)
             self.assertEqual(next(w for w in app.text_input if w.label == 'Đơn giá VND').value, '')
             self.assertEqual(next(w for w in app.text_input if w.label == 'Số lượng đáp ứng').value, '20')
@@ -166,6 +284,9 @@ class PurchaseUITests(unittest.TestCase):
             self.assertEqual(fields['delivery_region'], 'Hà Nội')
             self.assertEqual(fields['category'], 'Tea category')
             self.assertTrue(app.success)
+            self.assertTrue(any(i.value == 'Bước tiếp theo: quản trị viên sẽ phân nhà cung cấp' for i in app.info))
+            self.assertFalse(any(b.label == 'Tạo phiếu nhu cầu' for b in app.button))
+            create.assert_called_once()
             self.assertNotIn('purchase_reference', app.session_state)
 
     def test_guest_login_preserves_only_public_catalog_reference(self):
@@ -202,7 +323,7 @@ class PurchaseUITests(unittest.TestCase):
             self.assertEqual(select.call_args.args[1:], (1, 1))
             self.assertTrue(app.success)
 
-    def test_seller_quote_form_sends_strings_without_client_total(self):
+    def test_seller_quote_form_parses_vietnamese_numbers_without_client_total(self):
         detail = self.detail()
         with patch('data.purchase.list_requests', return_value=[detail['request']]), \
                 patch('data.purchase.request_detail', return_value=detail), \
@@ -216,11 +337,15 @@ class PurchaseUITests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertTrue(any('Không có yêu cầu trong nhóm này' in i.value for i in app.info))
             next(w for w in app.selectbox if w.label == 'Lọc yêu cầu').select('Tất cả').run()
-            next(w for w in app.text_input if w.label == 'Đơn giá VND').set_value('100.00')
+            next(w for w in app.text_input if w.label == 'Số lượng đáp ứng').set_value('1.000,5')
+            next(w for w in app.text_input if w.label == 'Đơn giá VND').set_value('100.000')
+            next(w for w in app.text_input if w.label.startswith('Phí giao hàng VND')).set_value('10.000,5')
             next(w for w in app.text_area if w.label.startswith('Chi phí chưa bao gồm')).set_value('Shipping not included')
             next(b for b in app.button if b.label == 'Gửi phiên bản báo giá mới').click().run()
             self.assertFalse(app.exception)
-            self.assertEqual(submit.call_args.kwargs['unit_price'], '100.00')
+            self.assertEqual(submit.call_args.kwargs['quantity'], Decimal('1000.5'))
+            self.assertEqual(submit.call_args.kwargs['unit_price'], Decimal('100000'))
+            self.assertEqual(submit.call_args.kwargs['shipping_fee'], Decimal('10000.5'))
             self.assertNotIn('total_amount', submit.call_args.kwargs)
             self.assertTrue(app.success)
 

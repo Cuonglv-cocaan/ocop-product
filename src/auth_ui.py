@@ -5,19 +5,48 @@ from data import accounts, auth, leads
 from src.ui_labels import time_label, role_label
 
 
+def _guest_demand():
+    st.session_state['login_password'] = ''
+    st.session_state['page'] = 'Nhu cầu mua hàng'
+    st.query_params['page'] = 'demand'
+    st.session_state['_last_page_slug'] = 'demand'
+
+
 def login():
-    st.title('Đăng nhập')
-    with st.form('internal_login', clear_on_submit=True):
-        username = st.text_input('Tên đăng nhập', key='login_username')
-        password = st.text_input('Mật khẩu', type='password', key='login_password')
-        submitted = st.form_submit_button('Đăng nhập')
+    if st.session_state.pop('_clear_login_password', False):
+        st.session_state['login_password'] = ''
+    st.markdown('''<style>
+    .st-key-login_card {
+        width:min(100%,420px)!important;max-width:420px;margin:24px auto;
+        padding:26px;background:#fff;border:1px solid #dce5df;border-radius:16px;
+        box-shadow:0 6px 24px rgba(18,62,43,.06);box-sizing:border-box;
+    }
+    .st-key-login_card [data-testid="stForm"] {border:0;padding:0;}
+    .st-key-login_card h1 {text-align:center;}
+    .st-key-login_card .st-key-guest_demand button {
+        border:0;background:transparent;color:#195b3e;padding:6px 0;
+        box-shadow:none;text-align:center;white-space:normal;
+    }
+    @media(max-width:480px){.st-key-login_card{padding:20px;margin:12px auto;}}
+    </style>''', unsafe_allow_html=True)
+    with st.container(key='login_card', border=True):
+        st.title('Đăng nhập')
+        with st.form('internal_login', clear_on_submit=False):
+            username = st.text_input('Tên đăng nhập', key='login_username')
+            password = st.text_input('Mật khẩu', type='password', key='login_password')
+            submitted = st.form_submit_button('Đăng nhập', type='primary', use_container_width=True)
+        error_message = st.session_state.pop('_login_error', None)
+        if error_message:
+            st.error(error_message)
+        st.button('Chưa có tài khoản? Gửi nhu cầu không cần đăng nhập',
+                  key='guest_demand', on_click=_guest_demand, use_container_width=True)
     if submitted:
         try:
             session = auth.authenticate(username, password)
         except auth.AccessDenied as error:
-            st.error(str(error))
+            st.session_state['_login_error'] = str(error)
         except (psycopg.Error, OSError, ValueError):
-            st.error('Không thể đăng nhập lúc này. Vui lòng thử lại.')
+            st.session_state['_login_error'] = 'Không thể đăng nhập lúc này. Vui lòng thử lại.'
         else:
             reference = st.session_state.get('purchase_reference')
             auth.logout(st.session_state)
@@ -26,6 +55,9 @@ def login():
                 st.session_state['purchase_reference'] = {key: reference.get(key, '') for key in ('source', 'product_id', 'title', 'category')}
             st.session_state['page'] = 'Nhu cầu' if reference else 'Trang chủ'
             st.rerun()
+        # Reset only the password before recreating widgets on the next run.
+        st.session_state['_clear_login_password'] = True
+        st.rerun()
 
 
 def identity():

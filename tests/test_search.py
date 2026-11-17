@@ -149,6 +149,46 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_failed_save_new_chat_can_be_cancelled_or_confirmed(self):
+        with patch('data.chat.save_conversation', side_effect=RuntimeError('offline')), \
+                patch('src.search.search_products_async', new=AsyncMock(return_value=('Tea', [], []))):
+            app = self.app()
+            session = object()
+            app.session_state['auth_session'] = session
+            app.chat_input[0].set_value('Tea').run()
+            conversation_id = app.session_state['chat_id']
+            app.run()
+            app.button(key='clear_discovery').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual([w.value for w in app.warning], ['Chưa lưu được cuộc trò chuyện, sẽ thử lại'])
+            self.assertTrue(app.button(key='confirm_new_chat'))
+            app.button(key='cancel_new_chat').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(len(app.session_state['discovery_messages']), 2)
+            self.assertEqual(app.session_state['chat_id'], conversation_id)
+            app.button(key='clear_discovery').click().run()
+            app.button(key='confirm_new_chat').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['discovery_messages'], [])
+            self.assertFalse(app.session_state['chat_dirty'])
+            self.assertIs(app.session_state['auth_session'], session)
+
+    def test_save_retries_silently_on_later_activity_after_backoff(self):
+        with patch('src.search.monotonic', return_value=10) as clock, \
+                patch('data.chat.save_conversation', side_effect=[RuntimeError('offline'), RuntimeError('offline'), 1]) as save, \
+                patch('src.search.search_products_async', new=AsyncMock(return_value=('Tea', [], []))):
+            app = self.app()
+            app.chat_input[0].set_value('Tea').run()
+            app.run()
+            self.assertEqual(save.call_count, 2)
+            self.assertEqual(app.button(key='discovery_retry').label, 'Thử lại')
+            clock.return_value = 40
+            app.run()
+            self.assertFalse(app.exception)
+            self.assertFalse(app.session_state['chat_dirty'])
+            self.assertFalse(app.warning)
+            self.assertEqual(save.call_count, 3)
+
     def test_starter_and_followup_click_send_once_with_context(self):
         product = dict(product_name='Tea', province_name='Hà Nội', price=100,
                        source='TIKI', product_id='1')

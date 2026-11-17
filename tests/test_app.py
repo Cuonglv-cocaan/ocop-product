@@ -9,7 +9,42 @@ from data.database import COLUMNS
 
 
 class AppTests(unittest.TestCase):
+    def test_directory_pagination_cache_and_filter_reset(self):
+        rows = []
+        for index in range(25):
+            row = dict.fromkeys(COLUMNS, '')
+            row.update(source='TIKI' if index % 2 == 0 else 'TIKTOK',
+                       product_id=str(index), product_name=f'Tea {index}', price=str(index))
+            rows.append(row)
+        with patch('data.database.read_products', return_value=pd.DataFrame(rows)) as read:
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
+            app.query_params['page'] = 'products'
+            app.run(timeout=20)
+            self.assertFalse(app.exception)
+            self.assertEqual(len([b for b in app.button if str(b.key).startswith('detail_')]), 12)
+            app.button(key='catalog_next').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['catalog_page'], 2)
+            self.assertEqual(len([b for b in app.button if str(b.key).startswith('detail_')]), 12)
+            app.button(key='catalog_next').click().run()
+            self.assertEqual(app.session_state['catalog_page'], 3)
+            self.assertEqual(len([b for b in app.button if str(b.key).startswith('detail_')]), 1)
+            app.selectbox(key='source_filter').select('TIKI').run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['catalog_page'], 1)
+            app.button(key='catalog_next').click().run()
+            app.selectbox(key='product_sort').select('Giá giảm dần').run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['catalog_page'], 1)
+            app.button(key='catalog_next').click().run()
+            app.button(key='clear_filters').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['catalog_page'], 1)
+            self.assertEqual(read.call_count, 1)
+
     def setUp(self):
+        import streamlit as st
+        st.cache_data.clear()
         history = patch('data.chat.save_conversation', return_value=1)
         history.start()
         self.addCleanup(history.stop)
@@ -60,12 +95,14 @@ class AppTests(unittest.TestCase):
             self.assertEqual(len(app.text_area), 0)
             app.text_input(key='login_username').set_value('buyer01')
             app.text_input(key='login_password').set_value(password)
-            app.button[0].click().run()
+            next(b for b in app.button if b.label == 'Đăng nhập').click().run()
             self.assertTrue(app.error)
             self.assertNotIn('auth_session', app.session_state)
+            self.assertEqual(app.text_input(key='login_username').value, 'buyer01')
+            self.assertEqual(app.text_input(key='login_password').value, '')
             app.text_input(key='login_username').set_value('buyer01')
             app.text_input(key='login_password').set_value(password)
-            app.button[0].click().run()
+            next(b for b in app.button if b.label == 'Đăng nhập').click().run()
             self.assertFalse(app.exception)
             self.assertIs(app.session_state['auth_session'], session)
             self.assertEqual(login.call_count, 2)

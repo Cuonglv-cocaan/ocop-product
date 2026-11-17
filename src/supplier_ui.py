@@ -4,9 +4,13 @@ from contextlib import nullcontext
 import psycopg
 import streamlit as st
 from data import auth, postgres, suppliers
+from data.categories import CATEGORY_ALIASES
 from crawlers.provinces import PROVINCE_NAMES
 from src import auth_ui
+from src.catalog_cache import catalog_items
 from src.ui_labels import field_line, status_label, number_label, money_label, time_label
+from src.ui_labels import parse_vn_number, NUMBER_HELP
+from src.ui_labels import UNIT_OPTIONS, select_existing
 
 STATUS_LABELS = {'pending': 'Chờ duyệt', 'approved': 'Đã duyệt',
                  'rejected': 'Bị từ chối', 'suspended': 'Tạm ngưng'}
@@ -76,7 +80,7 @@ def _products(session, row, actor):
     if actor['role'] != 'seller' or row['status'] != 'approved':
         st.info('Bạn có thể quản lý sản phẩm sau khi hồ sơ đơn vị được duyệt.')
         return
-    catalog = suppliers.catalog_items()
+    catalog = catalog_items()
     options = {(p['source'], p['product_id']): p['product_name'] or 'Chưa cập nhật' for p in catalog}
     # Retain removed catalog keys for viewing/deactivating historical links.
     for link in links:
@@ -88,29 +92,38 @@ def _products(session, row, actor):
                        format_func=lambda k: f'{options[k]} ({k[0]} · {k[1]})', key=f'supply_key_{row["id"]}')
     current = next((link for link in links if (link['source'], link['product_id']) == key), {})
     with st.form(f'supply_{row["id"]}_{key[0]}_{key[1]}'):
+        st.subheader('Điều kiện đặt hàng')
+        category = select_existing('Danh mục cung ứng khai báo', CATEGORY_ALIASES, current.get('category', ''))
         quantity = st.text_input('Số lượng đặt tối thiểu (để trống nếu chưa biết)',
-                                 value=str(current.get('minimum_order') or ''))
-        unit = st.text_input('Đơn vị tính', value=current.get('unit', ''))
-        preparation = st.text_input('Thời gian chuẩn bị', value=current.get('preparation_time', ''))
+                                 value='' if current.get('minimum_order') is None else number_label(current['minimum_order']), help=NUMBER_HELP)
+        unit = select_existing('Đơn vị tính', UNIT_OPTIONS, current.get('unit', ''))
         capacity = st.text_area('Năng lực cung ứng', value=current.get('capacity_description', ''))
+        st.subheader('Khu vực và thời gian')
         st.caption('Thông tin dưới đây giúp tìm yêu cầu mua hàng phù hợp với khả năng cung ứng.')
-        category = st.text_input('Danh mục cung ứng khai báo', value=current.get('category', ''))
-        regions = st.text_area('Tỉnh/thành phục vụ (mỗi dòng một tỉnh/thành, ghi tên đầy đủ)',
-                               value='\n'.join(current.get('service_regions', [])))
-        days = st.text_input('Số ngày chuẩn bị (số nguyên, trống nếu chưa biết)',
-                             value='' if current.get('preparation_days') is None else str(current['preparation_days']))
+        historical_regions = list(dict.fromkeys(current.get('service_regions') or []))
+        region_options = list(dict.fromkeys([*PROVINCE_NAMES, *historical_regions]))
+        regions = st.multiselect('Tỉnh/thành phục vụ', options=region_options, default=historical_regions,
+                                 help='Chọn nhiều tỉnh/thành. Các giá trị lịch sử ngoài danh sách vẫn được giữ.')
+        days = st.number_input('Số ngày chuẩn bị (số nguyên, trống nếu chưa biết)',
+                               min_value=0, step=1, format='%d',
+                               value=current.get('preparation_days'), placeholder='Chưa cập nhật')
+        preparation = st.text_input('Thời gian chuẩn bị', value=current.get('preparation_time', ''))
+        st.subheader('Giá tham khảo')
         price = st.text_input('Giá tham khảo tự khai báo (VND mỗi đơn vị, tùy chọn)',
-                              value='' if current.get('reference_price') is None else str(current['reference_price']))
+                              value='' if current.get('reference_price') is None else number_label(current['reference_price']), help=NUMBER_HELP)
         price_unit = st.text_input('Đơn vị của giá tham khảo', value=current.get('reference_price_unit', ''))
         st.caption('Giá tham khảo chưa xác nhận vận chuyển/thuế; khác giá catalog và báo giá thực tế theo yêu cầu.')
         active = st.checkbox('Đang cung ứng', value=current.get('is_active', True))
         submitted = st.form_submit_button('Lưu cung ứng', type='primary')
         stop = st.form_submit_button('Ngừng cung ứng liên kết hiện có') if current else False
     if submitted:
+        quantity = parse_vn_number(quantity) if quantity.strip() else None
+        price = parse_vn_number(price) if price.strip() else None
         suppliers.save_product(session, row['id'], *key, minimum_order=quantity, unit=unit,
                                preparation_time=preparation, capacity_description=capacity, is_active=active,
-                               structured=dict(category=category, service_regions=[r.strip() for r in regions.splitlines() if r.strip()],
-                                               preparation_days=days, reference_price=price, reference_price_unit=price_unit))
+                               structured=dict(category=category, service_regions=[r.strip() for r in regions if r.strip()],
+                                               preparation_days='' if days is None else str(days),
+                                               reference_price=price, reference_price_unit=price_unit))
         _success('Đã lưu thông tin cung ứng.')
     if stop:
         suppliers.stop_product(session, row['id'], *key)

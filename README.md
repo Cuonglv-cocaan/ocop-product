@@ -6,6 +6,8 @@ Hệ thống ghi nhận nhu cầu, phân nhà cung cấp, báo giá và xác nh�
 
 ## Chức năng và phân quyền
 
+Điều hướng dùng slug ASCII trong URL: `?page=home`, `products`, `regions`, `demand`, `login`, `quotes`, `supply`, `supplier-registration`, `admin`, `dashboard`. URL đồng bộ với menu và các nút chuyển trang. Logo là nút Streamlit về trang chủ, giữ phiên đăng nhập và bản nháp. Trang không thuộc quyền của tài khoản hoặc slug không hợp lệ được đưa về trang chủ; URL không cấp thêm quyền truy cập.
+
 | Người dùng | Chức năng |
 | --- | --- |
 | Khách | Xem/lọc sản phẩm, khám phá theo tỉnh, hỏi AI, mở gian hàng nguồn; gửi nhu cầu liên hệ không cần đăng nhập. |
@@ -43,6 +45,8 @@ Giao diện Streamlit → lớp nghiệp vụ Python → PostgreSQL / Supabase
 | `tests/` | Kiểm thử logic, giao diện và tích hợp PostgreSQL tùy chọn. |
 
 Catalog và embeddings dùng DuckDB. Dữ liệu nghiệp vụ dùng PostgreSQL/Supabase; SQLite chỉ phục vụ công cụ legacy và migration, không phải backend thay thế cho giao diện hiện tại. Ứng dụng không đọc trực tiếp CSV crawler.
+
+Catalog công khai và danh sách sản phẩm tham chiếu dùng `st.cache_data(ttl=600)`, khóa cache gồm đường dẫn, mtime/kích thước DuckDB và WAL nếu có. Chỉ lớp giao diện cache `suppliers.catalog_items()`; kiểm tra nghiệp vụ ở lớp dữ liệu vẫn đọc trực tiếp. Gian hàng hiển thị 12 sản phẩm/trang trong `st.fragment`, nên đổi bộ lọc/phân trang không chạy lại toàn bộ trang. Đổi bộ lọc, sắp xếp hoặc xóa bộ lọc đưa danh sách về trang 1; giữ nguyên hội thoại AI.
 
 ## Cài đặt và chạy
 
@@ -102,7 +106,7 @@ Gợi ý hỏi tiếp hiển thị bằng nút ngắn gọn; câu hỏi đầy �
 - Mở view `business.chat_research` để kiểm tra mỗi câu hỏi kèm `user_id`, `session_key` và tiêu đề hội thoại. Khách có `user_id=NULL`; tài khoản đăng nhập được xác minh trước khi lưu.
 - Giao diện chỉ hiển thị hội thoại trong phiên Streamlit hiện tại. Phiên mới, đăng nhập hoặc đăng xuất đều bắt đầu lại; không có chức năng mở lịch sử từ database. Bản ghi cũ vẫn được giữ để nghiên cứu.
 - Mỗi phiên có khóa ngẫu nhiên phía server (`session_key`), tránh cập nhật hội thoại của phiên khác. Không dùng cookie theo dõi hoặc IP để nhận dạng khách. Dữ liệu nghiên cứu được truy cập bằng công cụ database có quyền phù hợp, không qua giao diện khách hàng.
-- **Bắt đầu cuộc trò chuyện mới** giữ bản đã lưu. Khi lưu lỗi, bản nháp giữ trong phiên và có nút thử lưu lại. Đăng xuất/hết phiên làm mất phần chưa lưu.
+- Lịch sử tự lưu ngầm. Khi lưu lỗi, chỉ hiện **Chưa lưu được cuộc trò chuyện, sẽ thử lại** và nút **Thử lại**. Tự thử lại khi có tương tác sau ít nhất 30 giây, tránh lặp yêu cầu liên tục. **Bắt đầu cuộc trò chuyện mới** giữ bản đã lưu; nếu còn phần chưa lưu thì mở dialog để tiếp tục chat hoặc xác nhận bắt đầu mới. Đăng xuất/hết phiên làm mất phần chưa lưu.
 
 Sau khi cập nhật mã nguồn, chạy `python -m data.postgres --init-schema` để thêm bảng chat trước khi sử dụng lưu lịch sử. Cấu hình Gemini vẫn dùng các biến môi trường ở trên.
 
@@ -119,6 +123,12 @@ Buyer gửi hồ sơ → `pending` → admin duyệt `approved` hoặc từ ch�
 Nhà cung cấp liên kết sản phẩm bằng khóa `(source, product_id)`, khai báo số lượng tối thiểu, đơn vị, danh mục, khu vực phục vụ, số ngày chuẩn bị và giá tham khảo. Không suy ra đơn vị cung ứng từ tên thương hiệu crawler. Dữ liệu tự khai báo chưa chứng minh năng lực cung ứng thực tế.
 
 ### Nhu cầu → phân công → báo giá → kết nối
+
+Trong danh sách nhu cầu, bấm chọn một dòng để xem chi tiết. Các tab gồm **Tổng quan** (thông tin, tiến độ phân công và thao tác kết thúc phiếu), **Báo giá** (so sánh/chọn hoặc gửi báo giá theo vai trò), **Liên hệ & lịch sử**. Admin có thêm tab **Phân công** chứa matching và phân thủ công. Việc chuyển tab không thay đổi quyền truy cập; dữ liệu và thao tác vẫn được kiểm tra ở lớp nghiệp vụ.
+
+Người mua bấm xác nhận kết nối sẽ mở dialog nhắc **Chỉ xác nhận đã trao đổi, không xác nhận thanh toán hay giao hàng**; chỉ nút **Xác nhận** mới lưu trạng thái, **Hủy** không ghi dữ liệu. Lịch sử hiển thị timeline với vai trò nghiệp vụ của từng thao tác thay cho mã tài khoản. Sự kiện báo giá/từ chối kèm tên đơn vị từ lượt phân tương ứng; không suy ra đơn vị từ membership hiện tại. Phạm vi lịch sử seller vẫn giới hạn theo các lượt phân được phép xem.
+
+Người mua so sánh báo giá qua 6 cột chính; phí giao, chi phí chưa gồm, ghi chú và hiệu lực nằm trong expander từng báo giá. Chọn phương án bằng thẻ radio và checkbox xác nhận. Nhãn **Rẻ nhất** theo tổng tiền ghi nhận và **Giao sớm nhất** theo ngày giao chỉ xét các báo giá hiện có thể chọn; các phương án đồng hạng cùng nhận nhãn. Nhãn giá không khẳng định đã gồm toàn bộ chi phí hoặc các phương án có cùng số lượng.
 
 1. Buyer tạo phiếu với số lượng/đơn vị, địa điểm và hạn giao, thông tin liên hệ, ngân sách tùy chọn theo đơn vị hoặc tổng. Chỉ sửa phiếu `open` chưa từng phân công.
 2. Admin phân một hoặc nhiều đơn vị `approved`, thủ công hoặc từ gợi ý matching; mỗi cặp phiếu/đơn vị chỉ có một lượt phân.
@@ -164,6 +174,8 @@ Chỉ admin được truy cập. Bộ lọc ngày chọn nhóm phiếu **đượ
 | Theo nhà cung cấp | Số lượt phân, lượt phản hồi, lượt có báo giá và trung vị thời gian phản hồi đầu. Từ chối cũng là phản hồi. |
 
 Mẫu số 0 hoặc chưa có thời gian hợp lệ hiển thị `Chưa có dữ liệu`. Nhiều phiên bản báo giá không làm tăng số phiếu có báo giá. Lọc supplier thu hẹp nhóm phiếu và các lượt phân/phản hồi của đơn vị đó; selected/connected vẫn là kết quả cấp phiếu, không quy công cho supplier đang lọc. Dashboard không lọc loại dữ liệu; phiếu seed mô phỏng cũng được tính nếu nằm trong nhóm ngày chọn.
+
+Dashboard đặt 6 KPI chính ở đầu trang, mỗi thẻ có tooltip công thức: yêu cầu tạo, đã phân, có báo giá, đã kết nối, tỷ lệ có báo giá và trung vị thời gian đến báo giá đầu. Bộ lọc từ ngày/đến ngày/NCC nằm cùng một hàng. Phễu **tạo → phân → báo giá → chọn → kết nối** đếm phiếu duy nhất, tooltip thể hiện tỷ lệ trên số phiếu tạo. Khi lọc NCC, kết quả chọn/kết nối có thể lớn hơn bước báo giá của riêng đơn vị đó; biểu đồ giữ số thực tế, không ép giảm dần. Không có phiếu thì phễu và bảng NCC hiển thị `Chưa có dữ liệu`; số đếm bằng 0 vẫn là giá trị hợp lệ.
 
 ## Thu thập, đồng bộ và tìm kiếm AI
 

@@ -349,10 +349,22 @@ def request_detail(session, request_id):
                         'supplier_phone': supplier['phone']}
             if not owner:
                 contacts.update({key: row.get(key, '') for key in CONTACT_FIELDS})
-        event_where, params = 'request_id=%s', [request_id]
+        event_where, params = 'e.request_id=%s', [request_id]
         if actor['role'] == 'seller':
-            event_where += ' AND match_id=ANY(%s)'
+            event_where += ' AND e.match_id=ANY(%s)'
             params.append(match_ids)
-        events = _cursor(connection).execute('''SELECT id,actor_id,event_type,content,created_at
-            FROM business.request_events WHERE ''' + event_where + ' ORDER BY id', params).fetchall()
+        events = _cursor(connection).execute('''SELECT e.id,e.actor_id,e.event_type,e.content,e.created_at,
+            CASE WHEN e.event_type IN ('created','edited','selected','connected') THEN 'buyer'
+                 WHEN e.event_type='assigned' THEN 'admin'
+                 WHEN e.event_type IN ('quoted','declined') THEN 'seller'
+                 WHEN e.event_type IN ('cancelled','closed_no_match') THEN
+                    CASE WHEN e.actor_id=r.buyer_id THEN 'buyer' ELSE 'admin' END
+                 ELSE u.role END AS actor_role,
+            CASE WHEN e.event_type IN ('quoted','declined') THEN s.name END AS actor_supplier_name
+            FROM business.request_events e
+            JOIN business.purchase_requests r ON r.id=e.request_id
+            LEFT JOIN business.users u ON u.id=e.actor_id
+            LEFT JOIN business.request_matches m ON m.id=e.match_id
+            LEFT JOIN business.suppliers s ON s.id=m.supplier_id
+            WHERE ''' + event_where + ' ORDER BY e.id', params).fetchall()
     return {'request': row, 'matches': matches, 'quotes': quotes, 'contacts': contacts, 'events': events}

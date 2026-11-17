@@ -9,6 +9,8 @@ from data.database import COLUMNS
 
 class SupplierUITests(unittest.TestCase):
     def app(self, role, empty=False):
+        import streamlit as st
+        st.cache_data.clear()
         row = dict.fromkeys(COLUMNS, '')
         row.update(source='TIKI', product_id='001', product_name='Tea')
         products = pd.DataFrame(columns=COLUMNS) if empty else pd.DataFrame([row])
