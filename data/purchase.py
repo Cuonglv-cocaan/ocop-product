@@ -174,6 +174,38 @@ def assign_supplier(session, request_id, supplier_id, *, use_matching=False):
     return result[0]
 
 
+def unassign_supplier(session, request_id, match_id):
+    """Revoke an assignment with no quote, retaining its audit trail."""
+    import json
+
+    with postgres.transaction() as connection:
+        actor = auth.require_user(connection, session, {'admin'})
+        row = _request(connection, actor, request_id)
+        if row['status'] not in ('open', 'assigned', 'quoted'):
+            raise ValueError('Phiếu đã chọn phương án hoặc kết thúc; không thể hủy phân công.')
+        match = _cursor(connection).execute('''SELECT m.*,s.name AS supplier_name
+            FROM business.request_matches m JOIN business.suppliers s ON s.id=m.supplier_id
+            WHERE m.request_id=%s AND m.id=%s FOR UPDATE OF m''', (request_id, match_id)).fetchone()
+        if not match:
+            raise ValueError('Phân công không còn tồn tại. Vui lòng tải lại phiếu.')
+        if connection.execute('SELECT 1 FROM business.request_quotes WHERE match_id=%s', (match_id,)).fetchone():
+            raise ValueError('Nhà cung cấp đã gửi báo giá; không thể hủy phân công.')
+        # Preserve the original assignment and matching snapshot in the history
+        # before removing the access grant. A future assignment gets a new id.
+        archive = json.dumps({'message': f"Quản trị viên hủy phân công {match['supplier_name']}.",
+                              'assignment': dict(match)}, ensure_ascii=False, default=str)
+        _event(connection, request_id, actor, 'unassigned',
+               archive)
+        connection.execute('''UPDATE business.request_events SET match_id=NULL
+            WHERE request_id=%s AND match_id=%s''', (request_id, match_id))
+        connection.execute('DELETE FROM business.request_matches WHERE request_id=%s AND id=%s',
+                           (request_id, match_id))
+        connection.execute('''UPDATE business.purchase_requests SET status=CASE
+            WHEN EXISTS (SELECT 1 FROM business.request_quotes WHERE request_id=%s AND status='active') THEN 'quoted'
+            WHEN EXISTS (SELECT 1 FROM business.request_matches WHERE request_id=%s) THEN 'assigned'
+            ELSE 'open' END, updated_at=CURRENT_TIMESTAMP WHERE id=%s''', (request_id, request_id, request_id))
+
+
 def _match(connection, actor, row, match_id):
     match = _cursor(connection).execute('SELECT * FROM business.request_matches WHERE request_id=%s AND id=%s FOR UPDATE',
                                        (row['id'], match_id)).fetchone()
@@ -355,7 +387,7 @@ def request_detail(session, request_id):
             params.append(match_ids)
         events = _cursor(connection).execute('''SELECT e.id,e.actor_id,e.event_type,e.content,e.created_at,
             CASE WHEN e.event_type IN ('created','edited','selected','connected') THEN 'buyer'
-                 WHEN e.event_type='assigned' THEN 'admin'
+                 WHEN e.event_type IN ('assigned','unassigned') THEN 'admin'
                  WHEN e.event_type IN ('quoted','declined') THEN 'seller'
                  WHEN e.event_type IN ('cancelled','closed_no_match') THEN
                     CASE WHEN e.actor_id=r.buyer_id THEN 'buyer' ELSE 'admin' END

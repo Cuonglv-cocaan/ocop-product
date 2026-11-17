@@ -14,6 +14,27 @@ TEST_URL = os.environ.get('TEST_DATABASE_URL')
 
 @unittest.skipUnless(TEST_URL, 'Use the dedicated local PostgreSQL test database')
 class PurchaseIntegrationTests(unittest.TestCase):
+    def test_unassign_without_quotes_revokes_access_and_allows_reassignment(self):
+        request_id = self.demand()
+        match_id = purchase.assign_supplier(self.admin, request_id, self.unit_a)
+        with self.assertRaises(auth.AccessDenied):
+            purchase.unassign_supplier(self.buyer1, request_id, match_id)
+        purchase.unassign_supplier(self.admin, request_id, match_id)
+        detail = purchase.request_detail(self.admin, request_id)
+        self.assertEqual(detail['matches'], [])
+        self.assertEqual(detail['request']['status'], 'open')
+        self.assertEqual(detail['events'][-1]['event_type'], 'unassigned')
+        self.assertEqual(detail['events'][-1]['actor_role'], 'admin')
+        self.assertEqual(json.loads(detail['events'][-1]['content'])['assignment']['id'], match_id)
+        with self.assertRaises(auth.AccessDenied):
+            purchase.request_detail(self.seller, request_id)
+        replacement = purchase.assign_supplier(self.admin, request_id, self.unit_a)
+        self.assertNotEqual(replacement, match_id)
+        self.quote(request_id, replacement)
+        with self.assertRaises(ValueError):
+            purchase.unassign_supplier(self.admin, request_id, replacement)
+        self.assertEqual(len(purchase.request_detail(self.admin, request_id)['quotes']), 1)
+
     @classmethod
     def setUpClass(cls):
         fixtures.SupplierIntegrationTests.setUpClass()

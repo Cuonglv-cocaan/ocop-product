@@ -11,6 +11,25 @@ from data.database import COLUMNS
 
 
 class PurchaseUITests(unittest.TestCase):
+    def test_admin_unassign_requires_confirmation_and_excludes_quoted_suppliers(self):
+        detail = self.detail()
+        detail['matches'].append(dict(detail['matches'][0], id=2, supplier_id=2, supplier_name='Pending unit'))
+        with patch('data.purchase.list_requests', return_value=[detail['request']]), \
+                patch('data.purchase.request_detail', return_value=detail), \
+                patch('data.suppliers.list_suppliers', return_value=[]), \
+                patch('data.purchase.unassign_supplier') as revoke:
+            app = self.app(role='admin').run(timeout=20)
+            self.assertFalse(app.exception)
+            choice = next(w for w in app.selectbox if w.label == 'Nhà cung cấp cần hủy phân công')
+            self.assertEqual(choice.options, ['Pending unit'])
+            next(b for b in app.button if b.label == 'Hủy phân công').click().run()
+            revoke.assert_not_called()
+            self.assertTrue(app.error)
+            next(w for w in app.checkbox if w.label == 'Tôi xác nhận hủy phân công nhà cung cấp này.').check()
+            next(b for b in app.button if b.label == 'Hủy phân công').click().run()
+            self.assertFalse(app.exception)
+            revoke.assert_called_once_with(app.session_state['auth_session'], 1, 2)
+
     def test_connected_dialog_requires_confirmation_and_cancel_does_not_write(self):
         detail = self.detail()
         detail['request']['status'] = 'selected'

@@ -288,7 +288,8 @@ def _history_timeline(events):
     items = []
     # Event types identify the business role even if an account later changes role.
     roles = {'created': 'buyer', 'edited': 'buyer', 'assigned': 'admin',
-             'quoted': 'seller', 'declined': 'seller', 'selected': 'buyer', 'connected': 'buyer'}
+             'quoted': 'seller', 'declined': 'seller', 'selected': 'buyer', 'connected': 'buyer',
+             'unassigned': 'admin'}
     for event in events:
         label = role_label(event.get('actor_role') or roles.get(event['event_type']))
         supplier = event.get('actor_supplier_name')
@@ -497,6 +498,23 @@ def page(title='Nhu cầu và kết nối cung cầu'):
             _history_timeline(detail['events'])
         if actor['role'] == 'admin':
             with tabs[3]:
+                if row['status'] in ('open', 'assigned', 'quoted'):
+                    quoted_matches = {q['match_id'] for q in detail['quotes']}
+                    revocable = [m for m in detail['matches'] if m['id'] not in quoted_matches]
+                    if revocable:
+                        with st.container(border=True):
+                            st.subheader('Hủy phân công chưa có báo giá')
+                            st.caption('Nhà cung cấp sẽ không còn quyền xem hoặc phản hồi phiếu này. Có thể phân lại sau.')
+                            with st.form(f'unassign_{request_id}'):
+                                match = st.selectbox('Nhà cung cấp cần hủy phân công', options=revocable,
+                                                     format_func=lambda m: m['supplier_name'])
+                                confirmed = st.checkbox('Tôi xác nhận hủy phân công nhà cung cấp này.')
+                                revoke = st.form_submit_button('Hủy phân công')
+                            if revoke:
+                                if not confirmed:
+                                    raise ValueError('Vui lòng xác nhận hủy phân công.')
+                                purchase.unassign_supplier(session, request_id, match['id'])
+                                _done('Đã hủy phân công nhà cung cấp.')
                 if actor['role'] == 'admin' and row['status'] in ('open', 'assigned', 'quoted') and row['delivery_deadline'] >= purchase.today():
                     _matching(session, row, detail['matches'])
                     units = suppliers.list_suppliers(session, admin=True, status='approved')

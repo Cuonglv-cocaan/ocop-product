@@ -108,6 +108,14 @@ def role_label(role):
 
 def event_label(event):
     """Translate known legacy system messages without rewriting user notes."""
+    if event.get('event_type') == 'unassigned':
+        import json
+        try:
+            payload = json.loads(event.get('content') or '')
+            if isinstance(payload, dict) and isinstance(payload.get('message'), str):
+                return payload['message']
+        except (ValueError, TypeError):
+            pass
     legacy = {
         'Buyer tạo phiếu nhu cầu.': 'Người mua tạo phiếu nhu cầu.',
         'Buyer cập nhật phiếu trước khi phân công.': 'Người mua cập nhật phiếu trước khi phân công.',
