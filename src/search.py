@@ -660,14 +660,28 @@ def _history_controls(prefix):
 
 def floating_chat():
     st.markdown('''<style>
-    .st-key-floating_chat {position:fixed;bottom:22px;right:24px;width:auto;z-index:990;}
-    .st-key-floating_chat [data-testid="stPopoverButton"] > button {
+    .st-key-floating_chat {
+        position:fixed;bottom:calc(96px + env(safe-area-inset-bottom, 0px));
+        right:calc(24px + env(safe-area-inset-right, 0px));
+        width:auto;max-width:calc(100vw - 48px);z-index:990;
+    }
+    .st-key-floating_chat [data-testid="stPopoverButton"] > button,
+    .st-key-floating_chat button[data-testid="stPopoverButton"],
+    .st-key-floating_chat [data-testid="stPopover"] > button {
         border-radius:24px;background:#195b3e;color:#fff;border:1px solid #195b3e;
         padding:10px 18px;min-height:46px;font-weight:700;
         box-shadow:0 5px 18px rgba(18,62,43,.22);
     }
-    .st-key-floating_chat [data-testid="stPopoverButton"] > button:hover {background:#103f2a!important;}
-    @media(max-width:640px){.st-key-floating_chat{bottom:12px;right:12px;}}
+    .st-key-floating_chat [data-testid="stPopoverButton"] > button:hover,
+    .st-key-floating_chat button[data-testid="stPopoverButton"]:hover,
+    .st-key-floating_chat [data-testid="stPopover"] > button:hover {background:#103f2a!important;}
+    @media(max-width:640px){
+        .st-key-floating_chat {
+            bottom:calc(88px + env(safe-area-inset-bottom, 0px));
+            right:calc(16px + env(safe-area-inset-right, 0px));
+            max-width:calc(100vw - 32px);
+        }
+    }
     </style>''', unsafe_allow_html=True)
     with st.container(key='floating_chat'):
         with st.popover('💬 Chat với AI', use_container_width=True):
