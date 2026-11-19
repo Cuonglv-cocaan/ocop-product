@@ -76,6 +76,9 @@ h1,h2,h3 {letter-spacing:-.6px; color:#123E2B;}
 .section-kicker{font-size:13px;letter-spacing:2px;font-weight:800;color:var(--ocop-text-accent);text-transform:uppercase;margin-top:24px}
 .section-desc {font-size:13px;color:var(--ocop-text-muted);margin-top:-7px}
 .product-card {border:1px solid #e5ebe3;border-radius:14px;overflow:hidden;background:var(--ocop-surface-product);margin-bottom:4px;}
+.catalog-filter-chips {display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 10px;}
+.catalog-filter-chip {display:inline-flex;gap:4px;align-items:center;padding:5px 10px;border:1px solid #bfd8c6;border-radius:999px;background:#eef6f0;color:#195b3e;font-size:13px;}
+#catalog-results-start {display:block;scroll-margin-top:16px;}
 .product-photo {width:100%;height:172px;object-fit:contain;background:var(--ocop-surface-product);display:block;padding:12px;box-sizing:border-box;border-bottom:1px solid #f0f0f0;}
 .product-card-body {padding:13px 14px 14px;display:flex;flex-direction:column;gap:8px}
 .product-card .product-category {height:30px;line-height:15px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}

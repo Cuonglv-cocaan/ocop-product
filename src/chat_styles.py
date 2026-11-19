@@ -8,11 +8,32 @@ CHAT_CSS = """
 }
 [data-testid="stChatMessage"]:has(.ocop-user-label) {background:#f5f6f8;border:1px solid #e7e9ed;}
 [data-testid="stChatMessageContent"] {min-width:0;width:100%;}
-[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p {line-height:1.8;color:#163d2b;}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p {line-height:1.6;color:#163d2b;}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] li {line-height:1.55;margin-bottom:4px;color:#163d2b;}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] strong {color:#145a37;}
 .ocop-assistant-label,.ocop-user-label {font-size:13px;font-weight:800;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;}
 .ocop-assistant-label {color:#216b43;}
 .ocop-user-label {color:#637185;}
 .chat-products-heading {font-size:13px;font-weight:750;color:#234d36;margin:18px 0 10px;}
+[class*="st-key-chat_result_"] {background:#fff;border-color:#dce9df!important;border-radius:12px!important;padding:10px!important;}
+[class*="st-key-chat_result_"] > [data-testid="stVerticalBlock"] {gap:8px!important;}
+.chat-result-summary {display:flex;align-items:center;gap:12px;min-width:0;}
+.chat-result-image {width:76px;height:76px;flex:0 0 76px;object-fit:contain;border-radius:8px;background:#f5f8f4;}
+.chat-result-placeholder {display:grid;place-items:center;font-size:24px;}
+.chat-result-body {min-width:0;display:flex;flex-direction:column;gap:3px;}
+.chat-result-name {font-size:14px;font-weight:750;line-height:1.4;color:#123e2b;overflow-wrap:anywhere;}
+.chat-result-meta {font-size:13px;line-height:1.4;color:#576b60;}
+.chat-result-price {font-size:15px;line-height:1.4;font-weight:800;color:#be3030;}
+[class*="st-key-chat_result_"] [data-testid="stHorizontalBlock"] {gap:6px!important;}
+[class*="st-key-chat_result_"] [data-testid="stButton"] button,
+[class*="st-key-chat_result_"] [data-testid="stLinkButton"] a {min-height:36px;padding:5px 8px;font-size:13px;}
+[class*="st-key-chat_result_"] [data-testid="stButton"] button p,
+[class*="st-key-chat_result_"] [data-testid="stLinkButton"] a p {font-size:13px;line-height:1.3;}
+@media(max-width:600px) {
+    [class*="st-key-chat_result_"] [data-testid="stHorizontalBlock"] {flex-wrap:wrap!important;}
+    [class*="st-key-chat_result_"] [data-testid="stColumn"] {flex:1 1 135px!important;min-width:0!important;}
+    .chat-result-image {width:60px;height:60px;flex-basis:60px;}
+}
 [class*="st-key-"][class*="_suggestions"] {container-type:inline-size;margin:4px 0 8px;}
 [class*="st-key-"][class*="_suggestions"] [data-testid="stHorizontalBlock"] {
     display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:stretch;

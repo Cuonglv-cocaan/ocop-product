@@ -10,6 +10,48 @@ from data.database import COLUMNS
 
 
 class AppTests(unittest.TestCase):
+    def test_chat_product_actions_send_guest_to_prefilled_form(self):
+        product = dict.fromkeys(COLUMNS, '')
+        product.update(source='TIKI', product_id='123', product_name='Trà sen',
+                       category_name='Đồ uống', source_url='https://tiki.vn/tea')
+        with patch('data.database.read_products', return_value=pd.DataFrame([product])):
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
+            app.session_state['discovery_messages'] = [
+                {'role': 'assistant', 'content': 'Gợi ý trà.', 'products': [product], 'followup_questions': []}]
+            app.run(timeout=20)
+            self.assertFalse(app.exception)
+            self.assertTrue(any('Xem tại nơi bán' in x.label and 'Tiki' in x.label for x in app.get('link_button')))
+            app.button(key='discovery_0_detail_0').click().run()
+            self.assertFalse(app.exception)
+            self.assertTrue(app.get('dialog'))
+            app.button(key='discovery_0_request_0').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['page'], 'Nhu cầu mua hàng')
+            self.assertEqual(app.session_state['purchase_reference']['product_id'], '123')
+            self.assertIn('Trà sen', app.text_area[0].value)
+
+    def test_chat_product_request_opens_buyer_form(self):
+        product = dict.fromkeys(COLUMNS, '')
+        product.update(source='TIKTOK', product_id='42', product_name='Trà', category_name='Đồ uống')
+        actor = {'id': 1, 'username': 'buyer01', 'role': 'buyer'}
+        with patch('data.database.read_products', return_value=pd.DataFrame([product])), \
+                patch('data.auth.current_user', return_value=actor), \
+                patch('data.suppliers.catalog_items', return_value=[product]), \
+                patch('data.purchase.list_requests', return_value=[]), \
+                patch('data.leads.read_leads', return_value=[]):
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
+            app.session_state['auth_session'] = object()
+            app.session_state['discovery_messages'] = [
+                {'role': 'assistant', 'content': 'Trà.', 'products': [product], 'followup_questions': []}]
+            app.run(timeout=20)
+            self.assertFalse(app.exception)
+            self.assertTrue(any('Chưa có liên kết nơi bán' in c.value for c in app.caption))
+            app.button(key='discovery_0_request_0').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['page'], 'Nhu cầu mua hàng')
+            self.assertEqual(app.session_state['purchase_reference']['product_id'], '42')
+            self.assertTrue(any(field.label == 'Tiêu đề *' and field.value == 'Trà' for field in app.text_input))
+
     def test_startup_injects_one_stylesheet_on_each_rerun(self):
         from src.styles import APP_STYLES
         with patch('data.database.read_products', return_value=pd.DataFrame(columns=COLUMNS)):
@@ -52,6 +94,33 @@ class AppTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(app.session_state['catalog_page'], 1)
             self.assertEqual(read.call_count, 1)
+
+    def test_catalog_search_chips_and_both_pagers(self):
+        rows = []
+        for index in range(26):
+            row = dict.fromkeys(COLUMNS, '')
+            row.update(source='TIKI', product_id=str(index), product_name=f'Trà sen {index}',
+                       brand='Đặc sản Việt', category_name='Đồ uống')
+            rows.append(row)
+        with patch('data.database.read_products', return_value=pd.DataFrame(rows)):
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'src/app.py'))
+            app.query_params['page'] = 'products'
+            app.run(timeout=20)
+            app.button(key='catalog_next_top').click().run()
+            self.assertEqual(app.session_state['catalog_page'], 2)
+            self.assertEqual(app.number_input(key='catalog_page_input_bottom').value, 2)
+            app.number_input(key='catalog_page_input_bottom').set_value(3).run()
+            self.assertEqual(app.session_state['catalog_page'], 3)
+            self.assertEqual(app.number_input(key='catalog_page_input_top').value, 3)
+            app.text_input(key='catalog_query').set_value('DAC SAN viet').run()
+            self.assertEqual(app.session_state['catalog_page'], 1)
+            self.assertTrue(any('Hiển thị 26 / 26' in item.value for item in app.caption))
+            self.assertTrue(any('catalog-filter-chip' in item.value and 'DAC SAN viet' in item.value for item in app.markdown))
+            app.text_input(key='catalog_query').set_value('TRA SEN 1').run()
+            self.assertTrue(any('Hiển thị 11 / 26' in item.value for item in app.caption))
+            app.button(key='clear_filters').click().run()
+            self.assertEqual(app.text_input(key='catalog_query').value, '')
+            self.assertFalse(app.exception)
 
     def setUp(self):
         import streamlit as st

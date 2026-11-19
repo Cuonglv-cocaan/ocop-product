@@ -4,7 +4,7 @@ from unittest.mock import patch
 import duckdb
 
 from data import database
-from data.categories import CATEGORY_MAPPING, canonical_category
+from data.categories import CATEGORY_MAPPING, canonical_category, product_category
 
 
 class CategoryTests(unittest.TestCase):
@@ -29,3 +29,22 @@ class CategoryTests(unittest.TestCase):
                 products = database.read_products()
             self.assertEqual(products.iloc[0]['category_name'], 'Đồ ăn vặt')
             self.assertEqual(connection.execute('SELECT category_name FROM products').fetchone()[0], raw)
+
+    def test_buudien_fallback_is_conservative(self):
+        self.assertEqual(product_category('Đặc sản miền Bắc', 'Nước mắm Phú Quốc', '', 'BUUDIEN'), 'Gia vị và chế biến')
+        self.assertEqual(product_category('', 'Trà sen', '', 'BUUDIEN'), 'Đồ uống')
+        self.assertEqual(product_category('', 'Đặc sản địa phương', 'Sản phẩm là nước mắm truyền thống.', 'BUUDIEN'), 'Gia vị và chế biến')
+        self.assertEqual(product_category('', 'Đặc sản địa phương', 'Dùng cùng nước mắm.', 'BUUDIEN'), 'Chưa phân loại')
+        self.assertEqual(product_category('', 'Bánh trà xanh', '', 'BUUDIEN'), 'Chưa phân loại')
+        self.assertEqual(product_category('', 'Nước mắm', '', 'TIKTOK'), 'Chưa phân loại')
+        self.assertEqual(product_category('Trái cây', 'Trà sen', '', 'BUUDIEN'), 'Trái cây')
+
+    def test_read_infers_without_changing_stored_category(self):
+        from contextlib import nullcontext
+        with duckdb.connect(':memory:') as connection:
+            database.initialize_products(connection)
+            connection.execute("INSERT INTO products (source, product_id, product_name, category_name) VALUES ('BUUDIEN', '2', 'Trà sen', 'Đặc sản miền Bắc')")
+            with patch.object(database, 'connect', return_value=nullcontext(connection)):
+                products = database.read_products()
+            self.assertEqual(products.iloc[0]['category_name'], 'Đồ uống')
+            self.assertEqual(connection.execute('SELECT category_name FROM products').fetchone()[0], 'Đặc sản miền Bắc')

@@ -7,6 +7,12 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
+def source_label(source):
+    key = str(source or '').strip().upper().replace(' ', '').replace('_', '').replace('-', '')
+    return {'TIKI': 'Tiki', 'TIKTOK': 'TikTok Shop', 'TIKTOKSHOP': 'TikTok Shop',
+            'BUUDIEN': 'Bưu điện'}.get(key, str(source or '').strip() or 'Nguồn bán')
+
+
 def safe_url(value):
     url = str(value or '').strip()
     parts = urlparse(url)
@@ -61,3 +67,22 @@ def product_card_html(product):
         f'<div class="product-price">{money(product.get("price"))}</div>'
         f'{source_badge(str(product.get("source") or ""))}</div></div>'
     )
+
+
+def chat_product_card_html(product):
+    """Compact horizontal summary for a recommendation inside chat."""
+    esc = lambda value: html.escape(str(value or ''), quote=True)
+    image_url = safe_url(product.get('image_url'))
+    image = (f'<img class="chat-result-image" src="{esc(image_url)}" alt="" loading="lazy">'
+             if image_url else '<div class="chat-result-image chat-result-placeholder" aria-hidden="true">🌿</div>')
+    name = esc(product.get('product_name') or 'Sản phẩm')
+    stars = product.get('ocop_stars')
+    details = [esc(product.get('province_name') or 'Chưa cập nhật')]
+    if stars in (3, 4, 5):
+        details.append(esc(star_label(stars)))
+    details.append(esc(source_label(product.get('source'))))
+    return (f'<div class="chat-result-summary">{image}<div class="chat-result-body">'
+            f'<div class="chat-result-name" title="{name}">{name}</div>'
+            f'<div class="chat-result-meta">{" · ".join(details)}</div>'
+            f'<div class="chat-result-price">{esc(money(product.get("price")))}</div>'
+            '</div></div>')

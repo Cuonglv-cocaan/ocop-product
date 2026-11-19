@@ -11,11 +11,13 @@ import pandas as pd
 import duckdb
 from dotenv import load_dotenv
 if __package__:
-    from .categories import canonical_category
+    from .categories import product_category
+    from .product_metadata import buudien_province, buudien_stars, canonical_province
     from .sqlite_leads import connect_leads, initialize_leads
     from .leads import save_lead
 else:
-    from categories import canonical_category
+    from categories import product_category
+    from product_metadata import buudien_province, buudien_stars, canonical_province
     from sqlite_leads import connect_leads, initialize_leads
     from leads import save_lead
 
@@ -151,7 +153,24 @@ def read_products() -> pd.DataFrame:
         if not DUCKDB_READ_ONLY:
             initialize_products(connection)
         products = connection.execute("SELECT * FROM products ORDER BY source, product_id").fetchdf()
-    products["category_name"] = products["category_name"].map(canonical_category)
+    products["category_name"] = [
+        product_category(category, name, description, source)
+        for category, name, description, source in zip(
+            products["category_name"], products["product_name"],
+            products["description"], products["source"]
+        )
+    ]
+    for index in products.index:
+        row = products.loc[index]
+        if str(row["source"]).upper() == "BUUDIEN":
+            products.at[index, "province_name"] = buudien_province(
+                row["province_name"], row["product_name"], row["description"]
+            )
+            products.at[index, "ocop_stars"] = buudien_stars(
+                row["ocop_stars"], row["product_name"], row["description"]
+            )
+        else:
+            products.at[index, "province_name"] = canonical_province(row["province_name"]) or "Chưa cập nhật"
     return products
 
 

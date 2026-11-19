@@ -42,7 +42,12 @@ class CrawlerTests(unittest.TestCase):
         for raw, expected in {'Đồ khô sấy': 'Thực phẩm đóng hộp và khô',
                               'Thịt hộp': 'Thực phẩm đóng hộp và khô',
                               'Trà': 'Đồ uống',
-                              'Đặc sản miền Bắc': 'Sản phẩm thiên nhiên và khác'}.items():
+                              'Gia vị dạng lỏng': 'Gia vị và chế biến',
+                              'Hoa quả tươi': 'Trái cây',
+                              'Thủy sản đông lạnh': 'Thủy hải sản',
+                              'Thực phẩm chức năng thiên nhiên': 'Sản phẩm hỗ trợ sức khỏe',
+                              'Đồ uống có cồn': 'Rượu, bia và nước lên men',
+                              'Đặc sản miền Bắc': 'Chưa phân loại'}.items():
             self.assertEqual(canonical_category(raw), expected)
 
     def test_buudien_saved_and_duplicate_links_do_not_open_chrome(self):

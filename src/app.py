@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import math
 import sys
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -22,6 +23,7 @@ from data import auth
 from src.ui_labels import role_label
 from src.product_cards import money, star_label, source_badge, product_card_html
 from src.catalog_cache import catalog_version
+from src.banners import load_banners
 from src.styles import APP_STYLES
 from src import auth_ui
 from src import supplier_ui
@@ -139,6 +141,7 @@ def clear_product_filters():
     for key, value in {
         "category": "Tất cả", "stars_filter": "Tất cả",
         "province": "Tất cả", "source_filter": "Tất cả", "product_sort": "Mặc định",
+        "catalog_query": "",
     }.items():
         st.session_state[key] = value
     reset_catalog_page()
@@ -146,6 +149,32 @@ def clear_product_filters():
 
 def reset_catalog_page():
     st.session_state['catalog_page'] = 1
+
+
+def set_catalog_page(page=None, widget_key=None):
+    st.session_state['catalog_page'] = int(st.session_state[widget_key] if widget_key else page)
+    st.session_state['_catalog_scroll_to_results'] = True
+
+
+def catalog_search_key(value):
+    text = unicodedata.normalize('NFD', str(value or '').casefold().replace('đ', 'd'))
+    return ''.join(char for char in text if unicodedata.category(char) != 'Mn')
+
+
+def catalog_pagination(page_number, page_count, position):
+    suffix = '_top' if position == 'top' else ''
+    previous, selector, following = st.columns([1, 1, 1], vertical_alignment='bottom')
+    with previous:
+        st.button('← Trang trước', key=f'catalog_previous{suffix}', disabled=page_number == 1,
+                  on_click=set_catalog_page, args=(page_number - 1,), width='stretch')
+    with selector:
+        widget_key = f'catalog_page_input_{position}'
+        st.session_state[widget_key] = page_number
+        st.number_input('Trang', min_value=1, max_value=page_count, step=1, key=widget_key,
+                        on_change=set_catalog_page, kwargs={'widget_key': widget_key})
+    with following:
+        st.button('Trang sau →', key=f'catalog_next{suffix}', disabled=page_number == page_count,
+                  on_click=set_catalog_page, args=(page_number + 1,), width='stretch')
 
 
 def source_label(source: str) -> str:
@@ -167,6 +196,8 @@ def directory_listing():
     df = load_products(catalog_version())
     st.subheader("Danh sách sản phẩm")
     st.caption("Lọc danh sách theo danh mục, hạng OCOP, tỉnh/thành và nguồn. Gợi ý AI ở trên hoạt động độc lập.")
+    query = st.text_input('Tìm theo tên sản phẩm hoặc thương hiệu', key='catalog_query',
+                          placeholder='Ví dụ: trà sen, tên thương hiệu', on_change=reset_catalog_page)
     c2, c3, c4, c5 = st.columns([1.5, 1, 1.2, 1.1], gap="small")
     with c2:
         categories = ["Tất cả"] + sorted(df["category_name"].astype(str).unique().tolist())
@@ -182,6 +213,11 @@ def directory_listing():
         source = st.selectbox("Nguồn", sources, format_func=source_label, key="source_filter", on_change=reset_catalog_page)
 
     filtered = df.copy()
+    search = catalog_search_key(query.strip())
+    if search:
+        names = filtered['product_name'].fillna('').map(catalog_search_key)
+        brands = filtered['brand'].fillna('').map(catalog_search_key)
+        filtered = filtered[names.str.contains(search, regex=False) | brands.str.contains(search, regex=False)]
     if cat != "Tất cả":
         filtered = filtered[filtered["category_name"] == cat]
     if stars != "Tất cả":
@@ -198,11 +234,18 @@ def directory_listing():
         sort = st.selectbox("Sắp xếp", ["Mặc định", "Giá tăng dần", "Giá giảm dần", "Sao cao nhất"],
                             label_visibility="collapsed", key="product_sort", on_change=reset_catalog_page)
     with reset:
-        active = any(value != "Tất cả" for value in (cat, stars, province, source)) or sort != "Mặc định"
+        active = bool(search) or any(value != "Tất cả" for value in (cat, stars, province, source)) or sort != "Mặc định"
         st.button("Xóa bộ lọc", key="clear_filters", on_click=clear_product_filters,
                   disabled=not active, width="stretch",
                   help="Đặt lại bộ lọc và sắp xếp của danh sách sản phẩm. Giữ nguyên hội thoại AI.")
-    filter_signature = (cat, stars, province, source, sort)
+    chips = []
+    for label, value in [('Tìm kiếm', query.strip()), ('Danh mục', cat), ('Hạng OCOP', stars),
+                         ('Tỉnh/thành', province), ('Nguồn', source_label(source)), ('Sắp xếp', sort)]:
+        if value and value not in ('Tất cả', 'Mặc định'):
+            chips.append(f'<span class="catalog-filter-chip">{escape(label)}: <strong>{escape(value)}</strong></span>')
+    if chips:
+        st.markdown('<div class="catalog-filter-chips" aria-label="Bộ lọc đang áp dụng">' + ''.join(chips) + '</div>', unsafe_allow_html=True)
+    filter_signature = (query, cat, stars, province, source, sort)
     if st.session_state.get('_catalog_filter_signature') != filter_signature:
         reset_catalog_page()
         st.session_state['_catalog_filter_signature'] = filter_signature
@@ -222,7 +265,12 @@ def directory_listing():
     page_number = max(1, min(st.session_state.get('catalog_page', 1), page_count))
     st.session_state['catalog_page'] = page_number
     first = (page_number - 1) * page_size
+    st.markdown('<span id="catalog-results-start"></span>', unsafe_allow_html=True)
+    if st.session_state.pop('_catalog_scroll_to_results', False):
+        st.html('<script>requestAnimationFrame(() => document.getElementById("catalog-results-start")?.scrollIntoView({block:"start", behavior:"smooth"}));</script>', unsafe_allow_javascript=True)
     st.caption(f'Trang {page_number} / {page_count} · Sản phẩm {first + 1}–{min(first + page_size, len(filtered))} trong {len(filtered)} kết quả')
+    if page_count > 1:
+        catalog_pagination(page_number, page_count, 'top')
     rows = filtered.iloc[first:first + page_size].to_dict("records")
     for start in range(0, len(rows), 4):
         cols = st.columns(4, gap="medium")
@@ -230,17 +278,7 @@ def directory_listing():
             with col:
                 product_card(p)
     if page_count > 1:
-        previous, selector, following = st.columns([1, 1, 1], vertical_alignment='bottom')
-        with previous:
-            st.button('← Trang trước', key='catalog_previous', disabled=page_number == 1,
-                      on_click=st.session_state.__setitem__, args=('catalog_page', page_number - 1),
-                      width="stretch")
-        with selector:
-            st.number_input('Trang', min_value=1, max_value=page_count, step=1, key='catalog_page')
-        with following:
-            st.button('Trang sau →', key='catalog_next', disabled=page_number == page_count,
-                      on_click=st.session_state.__setitem__, args=('catalog_page', page_number + 1),
-                      width="stretch")
+        catalog_pagination(page_number, page_count, 'bottom')
 
 
 def home(df: pd.DataFrame):
@@ -252,15 +290,13 @@ def home(df: pd.DataFrame):
     if st.button("Khám phá sản phẩm →", type="primary", width="content"):
         st.session_state["page"] = "Sản phẩm OCOP"
         st.rerun()
-    banners = [
-        "http://ocop.gov.vn/upload/2005578/20210618/banner_footer1_549f9.jpg",
-        "http://ocop.gov.vn/upload/2005578/20210618/banner_footer2_01611.jpg",
-        "http://ocop.gov.vn/upload/2005578/20210618/banner_footer3_42c65.jpg",
-    ]
-    for col, banner in zip(st.columns(3, gap="small"), banners):
-        with col:
-            st.image(banner, width="stretch")
-    stats = [ (str(len(df))+"+", "Sản phẩm"), (str(df["province_name"].nunique()), "Tỉnh/thành"), (str(df["category_name"].nunique()), "Danh mục"), (str(df["source"].nunique()), "Nguồn dữ liệu") ]
+    banners = load_banners()
+    if banners:
+        for col, (content, alt) in zip(st.columns(len(banners), gap="small"), banners):
+            with col:
+                st.markdown(f'<img src="data:image/jpeg;base64,{content}" alt="{escape(alt)}" '
+                            'style="display:block;width:100%;height:auto">', unsafe_allow_html=True)
+    stats = [ (str(len(df))+"+", "Sản phẩm"), (str(df.loc[df["province_name"] != "Chưa cập nhật", "province_name"].nunique()), "Tỉnh/thành"), (str(df["category_name"].nunique()), "Danh mục"), (str(df["source"].nunique()), "Nguồn dữ liệu") ]
     for col, (num, label) in zip(st.columns(4, gap="small"), stats):
         with col:
             st.markdown(f'<div class="stat"><strong>{num}</strong><small>{label}</small></div>', unsafe_allow_html=True)

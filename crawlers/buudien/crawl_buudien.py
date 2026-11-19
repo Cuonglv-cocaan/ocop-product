@@ -15,6 +15,10 @@ from bs4 import BeautifulSoup
 
 BASE = "https://buudien.vn"
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from data.product_metadata import buudien_stars
+
 CRAWLER_DIR = Path(__file__).resolve().parent
 FIELDS = (
     "product_id", "product_name", "brand", "category_name", "province_name",
@@ -76,7 +80,7 @@ def parse_product(soup, page_url=""):
     desc = plain_text(soup, "#tab_1 .wp_content_tab_description_product")
     store = plain_text(soup, ".box_store .info_store h3")
     brand = plain_text(soup, '[itemprop="brand"]') or store
-    stars = re.search(r"\bOCOP\s*[-:]?\s*([1-5])\s*sao\b", f"{name} {desc}", re.I)
+    stars = buudien_stars("", name, desc)
     image = soup.select_one('meta[property="og:image"]')
     image_url = spec.get("goods_image") or (image.get("content", "") if image else "")
     price = spec.get("goods_promotion_price") or spec.get("goods_price")
@@ -86,7 +90,7 @@ def parse_product(soup, page_url=""):
         "brand": brand,
         "category_name": categories[-1].get_text(" ", strip=True) if categories else "",
         "province_name": plain_text(soup, ".kv_store_info .drop_kv_giaohang") or "Chưa cập nhật",
-        "ocop_stars": stars.group(1) if stars else "",
+        "ocop_stars": stars,
         "description": desc,
         "source_url": url,
         "image_url": urljoin(url, image_url) if image_url else "",
