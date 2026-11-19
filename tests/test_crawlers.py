@@ -7,9 +7,57 @@ from unittest.mock import patch
 
 from crawlers.tiki import crawl_tiki as tiki
 from crawlers.tiktok import crawl_tiktok as tiktok
+from crawlers.buudien import crawl_buudien as buudien
+from data.categories import canonical_category
 
 
 class CrawlerTests(unittest.TestCase):
+    def test_buudien_syncs_batches_and_retains_csv_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'products.csv'
+            rows = {}
+            batch = buudien.ProductBatch(path, rows)
+            synced = []
+            def capture(input_path):
+                synced.append(list(buudien.read_csv(input_path)))
+            with patch.object(buudien, 'sync_csv', side_effect=capture), patch('builtins.print'):
+                for index in range(12):
+                    row = dict.fromkeys(buudien.FIELDS, '')
+                    row.update(product_id=str(index), product_name='Tea', source='BUUDIEN')
+                    rows[row['product_id']] = row
+                    batch.save_product(row)
+                self.assertEqual([len(group) for group in synced], [10])
+                batch.flush()
+            self.assertEqual([len(group) for group in synced], [10, 2])
+            row = dict.fromkeys(buudien.FIELDS, '')
+            row.update(product_id='12', product_name='Tea', source='BUUDIEN')
+            rows['12'] = row
+            with patch.object(buudien, 'sync_csv', side_effect=RuntimeError('database unavailable')), patch('builtins.print'):
+                batch.save_product(row)
+                with self.assertRaises(RuntimeError):
+                    batch.flush()
+            self.assertEqual(buudien.read_csv(path)['12'], row)
+
+    def test_buudien_categories_map_to_project_taxonomy(self):
+        for raw, expected in {'Đồ khô sấy': 'Thực phẩm đóng hộp và khô',
+                              'Thịt hộp': 'Thực phẩm đóng hộp và khô',
+                              'Trà': 'Đồ uống',
+                              'Đặc sản miền Bắc': 'Sản phẩm thiên nhiên và khác'}.items():
+            self.assertEqual(canonical_category(raw), expected)
+
+    def test_buudien_saved_and_duplicate_links_do_not_open_chrome(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'products.csv'
+            row = dict.fromkeys(buudien.FIELDS, '')
+            row.update(product_id='123', product_name='Tea', source='BUUDIEN')
+            buudien.write_csv(path, {'123': row})
+            rows = buudien.read_csv(path)
+            with patch('selenium.webdriver.Chrome') as chrome, patch('builtins.print'):
+                buudien.crawl_live(['https://buudien.vn/home/Goods/index.html?goods_id=123',
+                                   'https://buudien.vn/home/Goods/index.html?other=1&goods_id=123'], False, rows)
+            chrome.assert_not_called()
+            self.assertEqual(rows['123'], row)
+
     def test_province_rules_are_shared_and_known_values_are_preserved(self):
         for title in ['Tỏi Lý Sơn', 'Đặc sản Phan Thiết', 'Cà phê Dak Lak',
                       'Trà Hà Nội và Huế', 'Mắm Lê Gia']:

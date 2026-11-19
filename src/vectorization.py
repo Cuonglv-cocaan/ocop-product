@@ -351,27 +351,49 @@ def _run_vectorize(
                 "Vector store chưa cấu hình embeddings."
             )
 
-        vectors = []
+        # Keep every product's complete chunk set together for each commit.
+        grouped = {}
+        for doc in documents:
+            key = (doc.metadata["source"], doc.metadata["product_id"])
+            grouped.setdefault(key, []).append(doc)
+        groups = []
+        group = []
+        for product_docs in grouped.values():
+            if group and len(group) + len(product_docs) > batch_size:
+                groups.append(group)
+                group = []
+            group.extend(product_docs)
+        if group:
+            groups.append(group)
 
-        # Tạo đủ embeddings trước khi thay dữ liệu vector cũ.
-        for start in range(0, len(documents), batch_size):
-            batch = documents[start:start + batch_size]
-            if start:
-                # Budget by text, conservatively below the observed 100/min quota.
-                _wait(min(batch_size, start) * 0.8)
-
-            batch_vectors = _embed_with_retry(embeddings,
-                [doc.page_content for doc in batch]
-            )
-
-            if len(batch_vectors) != len(batch):
-                raise RuntimeError(
-                    "Số embeddings trả về không khớp số tài liệu."
-                )
-
-            vectors.extend(batch_vectors)
-
-        _replace_vectors(keys, documents, vectors)
+        processed_chunks = 0
+        committed_products = 0
+        try:
+            for group in groups:
+                vectors = []
+                # A large product can span API requests, but commits only when complete.
+                for start in range(0, len(group), batch_size):
+                    batch = group[start:start + batch_size]
+                    if processed_chunks:
+                        _wait(min(batch_size, processed_chunks) * 0.8)
+                    batch_vectors = _embed_with_retry(embeddings, [doc.page_content for doc in batch])
+                    if len(batch_vectors) != len(batch):
+                        raise RuntimeError("Số embeddings trả về không khớp số tài liệu.")
+                    vectors.extend(batch_vectors)
+                    processed_chunks += len(batch)
+                group_keys = list(dict.fromkeys(
+                    (doc.metadata["source"], doc.metadata["product_id"]) for doc in group
+                ))
+                _replace_vectors(group_keys, group, vectors)
+                committed_products += len(group_keys)
+                print(f"VECTORIZE: saved {committed_products}/{len(keys)} products", flush=True)
+        except BaseException:
+            if committed_products:
+                try:
+                    sync_catalog()
+                except Exception as exc:
+                    print(f"Catalog sync failed after vectorization error: {exc!a}", flush=True)
+            raise
         sync_catalog()
 
         print(

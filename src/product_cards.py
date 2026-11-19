@@ -32,7 +32,8 @@ def source_badge(source):
     key = source.strip().upper().replace(' ', '').replace('_', '').replace('-', '')
     brands = {'TIKI': ('tiki.png', 'image/png', 'Tiki'),
               'TIKTOK': ('tiktokshop.webp', 'image/webp', 'TikTok Shop'),
-              'TIKTOKSHOP': ('tiktokshop.webp', 'image/webp', 'TikTok Shop')}
+              'TIKTOKSHOP': ('tiktokshop.webp', 'image/webp', 'TikTok Shop'),
+              'BUUDIEN': ('buudien.jfif', 'image/jpeg', 'Bưu điện')}
     logo, label = '', source
     if key in brands:
         filename, mime, label = brands[key]

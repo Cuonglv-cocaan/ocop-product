@@ -149,7 +149,7 @@ def reset_catalog_page():
 
 
 def source_label(source: str) -> str:
-    return {"TIKI": "Tiki", "TIKTOK": "TikTok Shop", "TIKTOKSHOP": "TikTok Shop"}.get(source, source)
+    return {"TIKI": "Tiki", "TIKTOK": "TikTok Shop", "TIKTOKSHOP": "TikTok Shop", "BUUDIEN": "Bưu điện"}.get(source, source)
 
 
 def directory(df: pd.DataFrame):

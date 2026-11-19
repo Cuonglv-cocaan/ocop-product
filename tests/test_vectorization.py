@@ -72,6 +72,48 @@ class VectorizationTests(unittest.IsolatedAsyncioTestCase):
                 await v.run_vectorize_async(force=True)
         self.assertEqual(before, self.conn.execute(f"SELECT * FROM {v.VECTOR_TABLE} ORDER BY id").fetchall())
 
+    async def test_partial_progress_is_saved_and_resumed_after_failure(self):
+        embed = self.store.embeddings.embed_documents
+        calls = 0
+
+        def fail_second(texts):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("quota exceeded")
+            return embed(texts)
+
+        with patch.object(self.store.embeddings, "embed_documents", side_effect=fail_second):
+            with self.assertRaisesRegex(RuntimeError, "quota exceeded"):
+                await v.run_vectorize_async(batch_size=2)
+        sources = self.conn.execute(
+            f"SELECT DISTINCT json_extract_string(metadata, '$.source') FROM {v.VECTOR_TABLE}"
+        ).fetchall()
+        self.assertEqual(sources, [('OTHER',)])
+        import duckdb
+        with duckdb.connect(str(db.DUCKDB_PATH.with_name('catalog.duckdb')), read_only=True) as catalog:
+            self.assertEqual(catalog.execute(f'SELECT count(*) FROM {v.VECTOR_TABLE}').fetchone()[0], 1)
+        stats = await v.run_vectorize_async(batch_size=2)
+        self.assertEqual((stats['vectorized'], stats['skipped']), (1, 1))
+
+    async def test_partial_large_product_does_not_replace_previous_vectors(self):
+        await v.run_vectorize_async()
+        before = self.conn.execute(f"SELECT * FROM {v.VECTOR_TABLE} ORDER BY id").fetchall()
+        embed = self.store.embeddings.embed_documents
+        calls = 0
+
+        def fail_second(texts):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError('quota exceeded')
+            return embed(texts)
+
+        with patch.object(self.store.embeddings, 'embed_documents', side_effect=fail_second):
+            with self.assertRaisesRegex(RuntimeError, 'quota exceeded'):
+                await v.run_vectorize_async(source='TIKI', batch_size=2, force=True)
+        self.assertEqual(before, self.conn.execute(f"SELECT * FROM {v.VECTOR_TABLE} ORDER BY id").fetchall())
+
     async def test_invalid_vectors_keep_old_vectors(self):
         await v.run_vectorize_async()
         before = self.conn.execute(f"SELECT * FROM {v.VECTOR_TABLE} ORDER BY id").fetchall()

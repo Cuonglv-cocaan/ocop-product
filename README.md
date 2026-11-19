@@ -1,6 +1,6 @@
 ﻿# OCOP Connect — Kết nối cung cầu sản phẩm OCOP
 
-Ứng dụng Streamlit hỗ trợ tra cứu sản phẩm OCOP, tư vấn tìm sản phẩm bằng AI và quản lý quá trình kết nối người mua với nhà cung cấp. Dữ liệu sản phẩm được thu thập từ Tiki/TikTok; nhà cung cấp đăng ký và khai báo năng lực cung ứng riêng để quản trị viên xét duyệt.
+Ứng dụng Streamlit hỗ trợ tra cứu sản phẩm OCOP, tư vấn tìm sản phẩm bằng AI và quản lý quá trình kết nối người mua với nhà cung cấp. Dữ liệu sản phẩm được thu thập từ Tiki, TikTok và Bưu điện; nhà cung cấp đăng ký và khai báo năng lực cung ứng riêng để quản trị viên xét duyệt.
 
 Hệ thống ghi nhận nhu cầu, phân nhà cung cấp, báo giá và xác nhận đã kết nối trao đổi. Trạng thái `connected` không xác nhận thanh toán, giao hàng hoặc doanh thu.
 
@@ -20,7 +20,7 @@ Phân quyền được kiểm tra ở lớp dữ liệu bằng tài khoản hi�
 ## Kiến trúc và lưu trữ
 
 ```text
-Tiki / TikTok → CSV crawler → pipeline chuẩn hóa → DuckDB
+Tiki / TikTok / Bưu điện → CSV crawler → pipeline chuẩn hóa → DuckDB
                                                  ├─ products → catalog và bộ lọc
                                                  └─ embeddings → tìm kiếm AI / RAG
 
@@ -182,12 +182,16 @@ Dashboard đặt 6 KPI chính ở đầu trang, mỗi thẻ có tooltip công th
 ```powershell
 python crawlers/tiki/crawl_tiki.py
 python crawlers/tiktok/crawl_tiktok.py
+python crawlers/buudien/crawl_buudien.py
 # Hoặc nhập CSV crawler đã có:
 python pipelines/sync_products.py --source TIKI --input crawlers/tiki/ocop_output/products_tiki.csv
 python pipelines/sync_products.py --source TIKTOK --input crawlers/tiktok/ocop_output/products_tiktok.csv
+python pipelines/sync_products.py --source BUUDIEN --input crawlers/buudien/ocop_output/products_buudien.csv
 ```
 
 Crawler đọc danh sách URL cùng thư mục và gọi pipeline sau khi hoàn tất. Pipeline upsert theo `(source, product_id)`, giữ sản phẩm lịch sử và không ghi đè dữ liệu đã biết bằng ô trống. Danh mục hiển thị được chuẩn hóa qua `data/categories.py`, không sửa tên gốc trong catalog. Tỉnh suy ra từ tên sản phẩm và sao OCOP từ nguồn cần kiểm chứng.
+
+Với Bưu điện, thêm URL chi tiết vào `crawlers/buudien/urls_buudien.txt`; crawler giữ dữ liệu đã lưu trong CSV và bỏ qua sản phẩm có cùng mã, kể cả khi URL khác tham số. Mỗi sản phẩm mới được ghi CSV, database được đồng bộ theo lô 10 sản phẩm và đồng bộ phần còn lại khi hoàn tất. Khi chạy lại, CSV hiện có được đồng bộ trước để phục hồi nếu lần trước bị gián đoạn. Dùng `--no-sync` nếu chỉ muốn xuất CSV. Có thể dùng `--url URL`, `--urls-file FILE`, hoặc `--html FILE`; thêm `--listing` khi URL là trang kết quả tìm kiếm (trang kết quả vẫn được tải để tìm link mới). Crawler cần Chrome và Selenium khi có trang mới. Chạy lại tạo embeddings để đưa sản phẩm mới vào tìm kiếm AI.
 
 Bổ sung tỉnh còn thiếu cho CSV TikTok mà không crawl hoặc đồng bộ DB:
 
@@ -204,7 +208,7 @@ python -m src.vectorization --source TIKI --batch-size 32
 python -m src.vectorization --force
 ```
 
-Vectorization lưu hash nội dung/metadata/model, bỏ qua sản phẩm không đổi; lỗi API giữ vector cũ để chạy lại. Tìm kiếm áp bộ lọc trước xếp hạng vector, gộp chunk theo sản phẩm và kiểm tra ID sản phẩm AI chọn với kết quả truy xuất. Chat nhận ngân sách tiếng Việt, giữ ngân sách khi hỏi tiếp và hỗ trợ bỏ giới hạn; lịch sử chỉ nằm trong phiên Streamlit.
+Vectorization lưu hash nội dung/metadata/model, bỏ qua sản phẩm không đổi và lưu tiến độ theo nhóm sản phẩm đầy đủ. Nếu gặp lỗi API, các nhóm đã lưu vẫn được giữ và vector cũ của nhóm chưa hoàn tất không bị xóa; chạy lại không dùng `--force` để tiếp tục. Tìm kiếm áp bộ lọc trước xếp hạng vector, gộp chunk theo sản phẩm và kiểm tra ID sản phẩm AI chọn với kết quả truy xuất. Chat nhận ngân sách tiếng Việt, giữ ngân sách khi hỏi tiếp và hỗ trợ bỏ giới hạn; lịch sử chỉ nằm trong phiên Streamlit.
 
 Dừng ứng dụng và đóng kết nối DBeaver trước khi ghi/crawl/vectorize DuckDB. Khi cần nâng cấp ràng buộc bảng sản phẩm cũ, dùng `python data/database.py --upgrade-products-schema`.
 
