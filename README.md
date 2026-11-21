@@ -6,7 +6,7 @@ Hệ thống ghi nhận nhu cầu, phân nhà cung cấp, báo giá và xác nh�
 
 ## Chức năng và phân quyền
 
-Điều hướng dùng slug ASCII trong URL: `?page=home`, `products`, `regions`, `demand`, `login`, `quotes`, `supply`, `supplier-registration`, `admin`, `dashboard`. URL đồng bộ với menu và các nút chuyển trang. Logo là nút Streamlit về trang chủ, giữ phiên đăng nhập và bản nháp. Trang không thuộc quyền của tài khoản hoặc slug không hợp lệ được đưa về trang chủ; URL không cấp thêm quyền truy cập.
+Điều hướng dùng slug ASCII trong URL: `?page=home`, `products`, `regions`, `demand`, `login`, `quotes`, `supply`, `supplier-registration`, `admin`, `dashboard`, `connection`, `requests`. Hai slug cuối là đường dẫn cũ được chuyển sang trang phù hợp theo vai trò. URL đồng bộ với menu và các nút chuyển trang. Logo là nút Streamlit về trang chủ, giữ phiên đăng nhập và bản nháp. Trang không thuộc quyền của tài khoản hoặc slug không hợp lệ được đưa về trang chủ; URL không cấp thêm quyền truy cập.
 
 | Người dùng | Chức năng |
 | --- | --- |
@@ -126,12 +126,12 @@ Nhà cung cấp liên kết sản phẩm bằng khóa `(source, product_id)`, kh
 
 Trong danh sách nhu cầu, bấm chọn một dòng để xem chi tiết. Các tab gồm **Tổng quan** (thông tin, tiến độ phân công và thao tác kết thúc phiếu), **Báo giá** (so sánh/chọn hoặc gửi báo giá theo vai trò), **Liên hệ & lịch sử**. Admin có thêm tab **Phân công** chứa matching và phân thủ công. Việc chuyển tab không thay đổi quyền truy cập; dữ liệu và thao tác vẫn được kiểm tra ở lớp nghiệp vụ.
 
-Người mua bấm xác nhận kết nối sẽ mở dialog nhắc **Chỉ xác nhận đã trao đổi, không xác nhận thanh toán hay giao hàng**; chỉ nút **Xác nhận** mới lưu trạng thái, **Hủy** không ghi dữ liệu. Lịch sử hiển thị timeline với vai trò nghiệp vụ của từng thao tác thay cho mã tài khoản. Sự kiện báo giá/từ chối kèm tên đơn vị từ lượt phân tương ứng; không suy ra đơn vị từ membership hiện tại. Phạm vi lịch sử seller vẫn giới hạn theo các lượt phân được phép xem.
+Người mua bấm xác nhận kết nối sẽ mở dialog nhắc **Chỉ xác nhận đã trao đổi, không xác nhận thanh toán hay giao hàng**; chỉ nút **Xác nhận** mới lưu trạng thái, **Hủy** không ghi dữ liệu. Lịch sử hiển thị timeline với vai trò nghiệp vụ của từng thao tác thay cho mã tài khoản. Với admin và seller, sự kiện báo giá/từ chối kèm tên đơn vị từ lượt phân tương ứng; buyer không thấy tên đơn vị trong timeline. Tên không được suy ra từ membership hiện tại. Phạm vi lịch sử seller vẫn giới hạn theo các lượt phân được phép xem.
 
 Người mua so sánh báo giá qua 6 cột chính; phí giao, chi phí chưa gồm, ghi chú và hiệu lực nằm trong expander từng báo giá. Chọn phương án bằng thẻ radio và checkbox xác nhận. Nhãn **Rẻ nhất** theo tổng tiền ghi nhận và **Giao sớm nhất** theo ngày giao chỉ xét các báo giá hiện có thể chọn; các phương án đồng hạng cùng nhận nhãn. Nhãn giá không khẳng định đã gồm toàn bộ chi phí hoặc các phương án có cùng số lượng.
 
-1. Buyer tạo phiếu với số lượng/đơn vị, địa điểm và hạn giao, thông tin liên hệ, ngân sách tùy chọn theo đơn vị hoặc tổng. Chỉ sửa phiếu `open` chưa từng phân công.
-2. Admin phân một hoặc nhiều đơn vị `approved`, thủ công hoặc từ gợi ý matching; mỗi cặp phiếu/đơn vị chỉ có một lượt phân.
+1. Buyer tạo phiếu với số lượng/đơn vị, địa điểm và hạn giao, thông tin liên hệ, ngân sách tùy chọn theo đơn vị hoặc tổng. Chỉ sửa phiếu `open` hiện không còn phân công.
+2. Admin phân một hoặc nhiều đơn vị `approved`, thủ công hoặc từ gợi ý matching; mỗi cặp phiếu/đơn vị chỉ có một lượt phân tại một thời điểm.
 3. Seller được phân gửi báo giá hoặc từ chối có lý do. Báo giá lưu số lượng, đơn giá, phí giao hàng, chi phí chưa bao gồm, ngày giao và hạn hiệu lực có múi giờ.
 4. Buyer chọn báo giá còn hiệu lực, chưa bị thay thế, có ngày giao còn phù hợp và đơn vị còn được duyệt.
 5. Chỉ buyer sở hữu xác nhận `connected` sau khi chọn. Buyer/admin có thể hủy hoặc đóng không tìm được nguồn theo trạng thái cho phép.
@@ -140,7 +140,7 @@ Trạng thái chính: `open → assigned → quoted → selected → connected`.
 
 Báo giá mới tăng phiên bản, thay báo giá active cũ bằng `superseded`; báo giá đã chọn không được sửa/thay thế. Số lượng báo giá có thể đáp ứng một phần, không vượt nhu cầu và phải cùng đơn vị. Tổng tiền = số lượng × đơn giá + phí giao hàng đã khai báo; phí chưa biết không đồng nghĩa miễn phí. Hệ thống chưa bắt buộc báo giá thực tế nằm trong ngân sách.
 
-Thông tin liên hệ được trả về theo quyền tại lớp dữ liệu; seller chỉ thấy liên hệ buyer khi báo giá của mình được chọn trong phiếu selected/connected. Lịch sử phân công, báo giá và sự kiện được giữ để đối chiếu.
+Thông tin liên hệ được trả về theo quyền tại lớp dữ liệu; seller chỉ thấy liên hệ buyer khi báo giá của mình được chọn trong phiếu selected/connected. Admin có thể hủy phân công khi phiếu còn `open`, `assigned` hoặc `quoted` và lượt phân chưa từng có báo giá, kể cả khi nhà cung cấp đã từ chối. Hệ thống lưu ảnh chụp phân công trong sự kiện, xóa lượt phân để thu hồi quyền truy cập và có thể phân lại đơn vị sau đó. Trạng thái được tính lại theo báo giá active và các phân công còn lại; khi không còn phân công, phiếu về `open` và buyer có thể sửa. Lịch sử báo giá và sự kiện được giữ để đối chiếu; buyer không thấy tên đơn vị trong sự kiện hủy phân công.
 
 ## Matching theo quy tắc (`rules-v1`)
 
@@ -173,7 +173,7 @@ Chỉ admin được truy cập. Bộ lọc ngày chọn nhóm phiếu **đượ
 | Đã kết nối / hủy / đóng không tìm nguồn | Số phiếu theo từng trạng thái hiện tại. |
 | Theo nhà cung cấp | Số lượt phân, lượt phản hồi, lượt có báo giá và trung vị thời gian phản hồi đầu. Từ chối cũng là phản hồi. |
 
-Mẫu số 0 hoặc chưa có thời gian hợp lệ hiển thị `Chưa có dữ liệu`. Nhiều phiên bản báo giá không làm tăng số phiếu có báo giá. Lọc supplier thu hẹp nhóm phiếu và các lượt phân/phản hồi của đơn vị đó; selected/connected vẫn là kết quả cấp phiếu, không quy công cho supplier đang lọc. Dashboard không lọc loại dữ liệu; phiếu seed mô phỏng cũng được tính nếu nằm trong nhóm ngày chọn.
+Mẫu số 0 hoặc chưa có thời gian hợp lệ hiển thị `Chưa có dữ liệu`. Nhiều phiên bản báo giá không làm tăng số phiếu có báo giá. Lọc supplier thu hẹp nhóm phiếu và các lượt phân/phản hồi của đơn vị đó; selected/connected vẫn là kết quả cấp phiếu, không quy công cho supplier đang lọc. Dashboard không lọc loại dữ liệu; phiếu seed mô phỏng cũng được tính nếu nằm trong nhóm ngày chọn. Phân công đã hủy không còn trong bảng phân công nên không được tính vào số phân công, phản hồi hoặc bộ lọc nhà cung cấp, dù sự kiện hủy vẫn được lưu.
 
 Dashboard đặt 6 KPI chính ở đầu trang, mỗi thẻ có tooltip công thức: yêu cầu tạo, đã phân, có báo giá, đã kết nối, tỷ lệ có báo giá và trung vị thời gian đến báo giá đầu. Bộ lọc từ ngày/đến ngày/NCC nằm cùng một hàng. Phễu **tạo → phân → báo giá → chọn → kết nối** đếm phiếu duy nhất, tooltip thể hiện tỷ lệ trên số phiếu tạo. Khi lọc NCC, kết quả chọn/kết nối có thể lớn hơn bước báo giá của riêng đơn vị đó; biểu đồ giữ số thực tế, không ép giảm dần. Không có phiếu thì phễu và bảng NCC hiển thị `Chưa có dữ liệu`; số đếm bằng 0 vẫn là giá trị hợp lệ.
 
@@ -208,7 +208,7 @@ python -m src.vectorization --source TIKI --batch-size 32
 python -m src.vectorization --force
 ```
 
-Vectorization lưu hash nội dung/metadata/model, bỏ qua sản phẩm không đổi và lưu tiến độ theo nhóm sản phẩm đầy đủ. Nếu gặp lỗi API, các nhóm đã lưu vẫn được giữ và vector cũ của nhóm chưa hoàn tất không bị xóa; chạy lại không dùng `--force` để tiếp tục. Tìm kiếm áp bộ lọc trước xếp hạng vector, gộp chunk theo sản phẩm và kiểm tra ID sản phẩm AI chọn với kết quả truy xuất. Chat nhận ngân sách tiếng Việt, giữ ngân sách khi hỏi tiếp và hỗ trợ bỏ giới hạn; lịch sử chỉ nằm trong phiên Streamlit.
+Vectorization lưu hash nội dung/metadata/model, bỏ qua sản phẩm không đổi và lưu tiến độ theo nhóm sản phẩm đầy đủ. Nếu gặp lỗi API, các nhóm đã lưu vẫn được giữ và vector cũ của nhóm chưa hoàn tất không bị xóa; chạy lại không dùng `--force` để tiếp tục. Tìm kiếm áp bộ lọc trước xếp hạng vector, gộp chunk theo sản phẩm và kiểm tra ID sản phẩm AI chọn với kết quả truy xuất. Chat nhận ngân sách tiếng Việt, giữ ngân sách khi hỏi tiếp và hỗ trợ bỏ giới hạn; giao diện chỉ hiển thị lịch sử trong phiên Streamlit hiện tại, còn các lượt đã lưu được giữ trong PostgreSQL như mô tả ở trên.
 
 Dừng ứng dụng và đóng kết nối DBeaver trước khi ghi/crawl/vectorize DuckDB. Khi cần nâng cấp ràng buộc bảng sản phẩm cũ, dùng `python data/database.py --upgrade-products-schema`.
 

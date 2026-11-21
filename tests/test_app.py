@@ -294,7 +294,7 @@ class AppTests(unittest.TestCase):
             self.assertEqual(len(app.chat_message), 4)  # Shared inline and floating chat.
             self.assertTrue(any('Hiển thị 2 / 3 sản phẩm' in c.value for c in app.caption))
             self.assertTrue(any(m.value == 'Gợi ý làm quà' for m in app.markdown))
-            self.assertTrue(any('Tea 0' in w.value and 'product-card' in w.value for w in app.markdown))
+            self.assertTrue(any('Tea 0' in w.value and 'chat-result-summary' in w.value for w in app.markdown))
             self.assertEqual(set(ai.await_args.kwargs), {'history', 'top_k'})
             app.selectbox(key='product_sort').select('Giá tăng dần').run()
             ai.assert_awaited_once()
